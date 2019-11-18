@@ -89,7 +89,8 @@ post_full <- left_join(cost_sel, post_carbon_tot)  %>%
 ############################
 
 
-### now find the total carbon that was stored/sequesterd by subtracting total_carb at in pre_rx 1 and post_rx 4
+### now find the total carbon that was stored/sequesterd by subtracting 
+# total_carb at in pre_rx 1 and post_rx 4
 pre_rx1 <- pre_full %>% 
   filter(rxcycle == 1) %>% 
   select(biosum_cond_id, rxpackage, rxcycle, tot_all)
@@ -219,18 +220,80 @@ cumm <- uniq_plot %>%
   filter(cpu >= 0 & cpu < 1000) %>%  ### this gets rid of sites where carbon is lost overtime and sites with very low change and therefor very high CPU
   arrange(cpu)
 
-cumm$cummulative <- cumsum(cumm$change_acre)  
+cumm$cummulative <- cumsum(cumm$change_acre) 
+
+cumm <- cumm %>% 
+  mutate(mega_tons_c = cummulative/1000000)
 
 
-
-ggplot(cumm, aes(x = cummulative, y = cpu)) + 
-  geom_point() +
-  geom_line() +
+## optimal marginal cost curve
+ggplot(cumm, aes(x = mega_tons_c, y = cpu)) + 
+ # geom_point() +
+  geom_line(size = 2) +
+  scale_x_continuous(expand = c(0,0), limits = c(0,1000)) +
   labs(
-    x = "total carbon stored",
+    x = "Megatons C Stored",
     y = "$/ton C") +
   theme_bw()
 
+## Which packages are the most common?
+opt_count <- opt %>% 
+  group_by(rxpackage) %>% 
+  tally() %>% 
+  arrange(-n) %>% 
+  head(10)
+
+####make a graph of 5 top package RX curves###
+
+# make the process of cleaning the data a function where you can say what package you want to look at 
+##use the total_carbon_acre data frame
+
+make_package_mc = function(df, package = "") {
+   
+  opt_packages <- df %>% 
+    select(biosum_cond_id, rxpackage, cpu) %>% 
+    group_by(biosum_cond_id) %>% 
+    filter(rxpackage == package)
+  
+  opt_packages_change <- left_join(opt_packages,
+                                   total_carbon_acre[,c("biosum_cond_id", "rxpackage","change_acre")]) %>% 
+    distinct()
+  
+  cumm_package <- opt_packages_change %>%  
+    filter(cpu >= 0 & cpu < 1000) %>%  ### this gets rid of sites where carbon is lost overtime and sites with very low change and therefor very high CPU
+    arrange(cpu)
+  
+  cumm_package$cummulative <- cumsum(cumm_package$change_acre) 
+  
+  cumm_package <- cumm_package %>% 
+    mutate(mega_tons_c = cummulative/1000000)
+  
+  return(cumm_package)
+}
+
+# order of most common package from 1-5  
+mc_p018 <- make_package_mc(total_carbon_acre, package = "018")
+mc_p014 <- make_package_mc(total_carbon_acre, package = "014")
+mc_p007 <- make_package_mc(total_carbon_acre, package = "007")
+mc_p006 <- make_package_mc(total_carbon_acre, package = "006")
+mc_p004 <- make_package_mc(total_carbon_acre, package = "004")
+
+# puts top 5 packages into 1 dataframe
+top_5_packages_all <- bind_rows(mc_p018, mc_p014, mc_p007, mc_p006, mc_p004)
+  
+
+# plot the different marginal cost curves w/ optimal
+ggplot(top_5_packages_all, aes(x = mega_tons_c, y = cpu)) + 
+  geom_line(aes(color = rxpackage)) +
+  geom_line(data = cumm, aes(x = mega_tons_c, y = cpu), color = "black", size = 1.5) +
+  scale_x_continuous(expand = c(0,0), limits = c(0,1000)) +
+  labs(
+    x = "Megatons C Stored",
+    y = "$/ton C",
+    color = "Prescription Package") +
+  theme_bw()
+
+# try with making it all into one dataframe
 
 
 ## add in forest type and variant
