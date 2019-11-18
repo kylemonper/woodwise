@@ -130,7 +130,7 @@ total_cost <- cost %>%
   group_by(biosum_cond_id, rxpackage) %>% 
   summarise(total_cost = sum(complete_cpa))
 
-
+#### grow only scenario
 baseline <- all_change %>% 
   filter(rxpackage == "032") %>% 
   select(biosum_cond_id, change) %>% 
@@ -141,7 +141,7 @@ all_base <- left_join(all_change, baseline)
 
 
 change_relative <- all_base %>% 
-  mutate(change_rel = change-base_change)
+  mutate(change_rel = total_change-base_change)
 # join in total cost per stand
 
 
@@ -163,11 +163,23 @@ total_carbon_acre <- all_data_acre %>%
 
 
 ##### optimize
-test <- total_carbon_acre %>% 
+## for each plot, which package has the lowest cpu
+opt <- total_carbon_acre %>% 
   select(biosum_cond_id, rxpackage, cpu) %>% 
   group_by(biosum_cond_id) %>% 
   filter(cpu == min(cpu))
-head(test)
+
+opt_change <- left_join(opt, total_carbon_acre[,c("biosum_cond_id", "rxpackage","change_acre")]) %>% 
+  distinct()
+
+uniq_plot <- opt_change %>% 
+  select(biosum_cond_id, cpu, change_acre) %>% 
+  distinct()
+
+####investigate number of plots later#####
+tmp <- uniq_plot %>% 
+  group_by(biosum_cond_id) %>% 
+  tally()
 
 #####################################
 #### get coordinates for mapping  ###
@@ -203,18 +215,22 @@ head(test)
 ### right now this calculation is showing per plot??
 
 
-cumm <- total_carbon_acre %>%  
+cumm <- uniq_plot %>%  
   filter(cpu >= 0 & cpu < 1000) %>%  ### this gets rid of sites where carbon is lost overtime and sites with very low change and therefor very high CPU
-  arrange(cpu) %>% 
-  mutate(cumsum = cumsum(change))
+  arrange(cpu)
+
+cumm$cummulative <- cumsum(cumm$change_acre)  
 
 
-tmp <- post_carb %>% 
-  select(biosum_cond_id, rx, rxcycle)
 
-ggplot(cumm, aes(x = cumsum, y = cpu)) + 
+ggplot(cumm, aes(x = cummulative, y = cpu)) + 
   geom_point() +
+  geom_line() +
   labs(
     x = "total carbon stored",
     y = "$/ton C") +
   theme_bw()
+
+
+
+## add in forest type and variant
