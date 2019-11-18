@@ -14,11 +14,13 @@ options(scipen = 999)
 ## read in data ##
 ##################
 
-conn <- odbcConnectAccess2007("PREPOST_FVS_POTFIRE.ACCDB")
-pre_fire <- sqlFetch(conn, "PRE_FVS_POTFIRE", as.is = T)
-post_fire <- sqlFetch(conn, "POST_FVS_POTFIRE", as.is = T)
+conn <- odbcConnectAccess2007("scenario_results_allrx.mdb")
+cost <- sqlFetch(conn, "harvest_costs", as.is = T)
 odbcCloseAll()
 
+conn <- odbcConnectAccess2007("optimizer_results.accdb")
+acres <- sqlFetch(conn, "all_cycles_best_rx_summary", as.is = T)
+odbcCloseAll()
 
 
 
@@ -35,10 +37,6 @@ post_carb_hrv <- sqlFetch(conn, "POST_FVS_HRV_CARBON", as.is = T)
 odbcCloseAll()
 
 
-conn <- odbcConnectAccess2007("optimizer_results.accdb")
-cost <- sqlFetch(conn, "product_yields_net_rev_costs_summary_by_rxpackage", as.is = TRUE)
-opt_plot_rx <- sqlFetch(conn, "all_cycles_best_rx_summary", as.is = T)
-odbcCloseAll()
 
 
 ####################
@@ -46,7 +44,7 @@ odbcCloseAll()
 ####################
 
 ## optimized packages + harvest cost per acre
-cost_sel <- cost %>% select(biosum_cond_id, rxpackage, harvest_onsite_cpa)
+cost_sel <- cost %>% select(biosum_cond_id, rxpackage, complete_cpa)
 # by only selective harvest_cpa we are explicity ignoring transportation
 
 ## stand carbon
@@ -67,23 +65,24 @@ post_hrv_sel <- post_carb_hrv %>%
 
 
 ## join carbon tables
-pre_carbon_tot <- left_join(pre_carb_sel, pre_hrv_sel)
-post_carbon_tot <- left_join(post_carb_sel, post_hrv_sel)
+pre_carbon_tot <- left_join(pre_carb_sel, pre_hrv_sel)  %>% 
+  distinct()
+post_carbon_tot <- left_join(post_carb_sel, post_hrv_sel)  %>% 
+  distinct()
 
 ## sum stand and harvest carbon to get total
-##~~~~~~ need to sum total removed for all cycles ~~~~~###
-pre_carbon_tot$tot_all <- pre_carbon_tot$Total_Stand_Carbon + pre_carbon_tot$Merch_Carbon_Removed
-post_carbon_tot$tot_all <- post_carbon_tot$Total_Stand_Carbon + post_carbon_tot$Merch_Carbon_Removed
+pre_carbon_tot$tot_all <- pre_carbon_tot$Total_Stand_Carbon 
+post_carbon_tot$tot_all <- post_carbon_tot$Total_Stand_Carbon
 
 
 ### join to econ
-pre_full <- left_join(cost_sel, pre_carbon_tot)
-post_full <- left_join(cost_sel, post_carbon_tot)
+pre_full <- left_join(cost_sel, pre_carbon_tot)  %>% 
+  distinct()
+post_full <- left_join(cost_sel, post_carbon_tot)  %>% 
+  distinct()
 
 
-### filter by optimal
-pre_opt <- left_join(opt_plot_rx, pre_full)
-post_opt <- left_join(opt_plot_rx, post_full)
+
 
 ############################
 ##### calculate change #####
@@ -91,28 +90,84 @@ post_opt <- left_join(opt_plot_rx, post_full)
 
 
 ### now find the total carbon that was stored/sequesterd by subtracting total_carb at in pre_rx 1 and post_rx 4
-pre_rx1 <- pre_opt %>% 
+pre_rx1 <- pre_full %>% 
   filter(rxcycle == 1) %>% 
-  select(biosum_cond_id, rxcycle, tot_all)
+  select(biosum_cond_id, rxpackage, rxcycle, tot_all)
 
 
-post_rx4 <- post_opt %>% 
+post_rx4 <- post_full %>% 
   filter(rxcycle == 4) %>% 
-  select(biosum_cond_id, rxcycle, tot_all) 
+  select(biosum_cond_id, rxpackage, rxcycle, tot_all) 
 
 
 
-pre_post <- rbind(pre_rx1, post_rx4)
+pre_post <- rbind(pre_rx1, post_rx4) %>% 
+  distinct()
+
+# check to see that there are only two of each
+# should only be 2
+tmp <- pre_post %>% 
+  group_by(biosum_cond_id, rxpackage) %>% 
+  tally()
+unique(tmp$n)
 
 wide <- pre_post %>% 
-  spread(rxcycle, tot_all) %>% 
+  tidyr::spread(rxcycle, tot_all) %>% 
   mutate(change = `4`  - `1`)
 
+
+### add in changes in total removed carbon
+removed <- post_hrv_sel %>% 
+  group_by(biosum_cond_id, rxpackage) %>% 
+  summarise(total_removed = sum(Merch_Carbon_Removed))
+
+
+all_change <- left_join(wide, removed)
+
+all_change$total_change <- all_change$change + all_change$total_removed
+
+total_cost <- cost %>% 
+  group_by(biosum_cond_id, rxpackage) %>% 
+  summarise(total_cost = sum(complete_cpa))
+
+
+baseline <- all_change %>% 
+  filter(rxpackage == "032") %>% 
+  select(biosum_cond_id, change) %>% 
+  rename("base_change" = "change")
+
+### join together all w/ baseline and subtract
+all_base <- left_join(all_change, baseline) 
+
+
+change_relative <- all_base %>% 
+  mutate(change_rel = change-base_change)
 # join in total cost per stand
 
 
-all_data <- left_join(wide, post_opt[, c("biosum_cond_id","harvest_onsite_cpa")]) %>% 
+all_data <- left_join(change_relative, total_cost) %>% 
   distinct() 
+
+all_data_acre <- left_join(all_data, acres[,c("biosum_cond_id","acres")])
+
+
+##### TEMPORARY!!!!! #######
+# ~~ return acre NA's with average acreage
+all_data_acre$acres[is.na(all_data_acre$acres)] <- mean(all_data_acre$acres, na.rm = T)
+
+
+total_carbon_acre <- all_data_acre %>% 
+  mutate(change_acre = total_change*acres,
+         cost_acre = total_cost*acres,
+         cpu = cost_acre/change_acre)
+
+
+##### optimize
+test <- total_carbon_acre %>% 
+  select(biosum_cond_id, rxpackage, cpu) %>% 
+  group_by(biosum_cond_id) %>% 
+  filter(cpu == min(cpu))
+head(test)
 
 #####################################
 #### get coordinates for mapping  ###
@@ -148,23 +203,18 @@ all_data <- left_join(wide, post_opt[, c("biosum_cond_id","harvest_onsite_cpa")]
 ### right now this calculation is showing per plot??
 
 
-cumm <- all_data %>%  
-  mutate(CPU = harvest_onsite_cpa/change) %>% 
-  filter(CPU >= 0 & CPU < 1000) %>%  ### this gets rid of sites where carbon is lost overtime and sites with very low change and therefor very high CPU
-  arrange(CPU) %>% 
+cumm <- total_carbon_acre %>%  
+  filter(cpu >= 0 & cpu < 1000) %>%  ### this gets rid of sites where carbon is lost overtime and sites with very low change and therefor very high CPU
+  arrange(cpu) %>% 
   mutate(cumsum = cumsum(change))
-  
+
 
 tmp <- post_carb %>% 
   select(biosum_cond_id, rx, rxcycle)
 
-ggplot(cumm, aes(x = cumsum, y = CPU)) + 
+ggplot(cumm, aes(x = cumsum, y = cpu)) + 
   geom_point() +
   labs(
     x = "total carbon stored",
     y = "$/ton C") +
   theme_bw()
-
-
-
-## add in forest type and variant
