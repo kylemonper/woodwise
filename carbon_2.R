@@ -61,7 +61,6 @@ post_hrv_sel <- post_carb_hrv %>%
   select(biosum_cond_id, rxpackage, rxcycle, Merch_Carbon_Removed)
 
 
-
 ## join carbon tables
 pre_carbon_tot <- left_join(pre_carb_sel, pre_hrv_sel)  %>% 
   distinct()
@@ -85,17 +84,69 @@ post_full <- left_join(cost_sel, post_carbon_tot)  %>%
 
 # test 1
 
+# filter down to just one plot
+plot_pre <- pre_full %>% 
+  filter(biosum_cond_id=="1200506050501500846430001") %>% 
+  filter(rxpackage=="001") %>% 
+  tail(4) %>% 
+  select(-tot_all) %>% 
+  mutate(time = rxcycle)
+
+# make a loop to match cycle to year
+
+for (i in length(plot_pre$time)){
+  
+  plot_pre$time = ifelse(plot_pre$time==1, 0, plot_pre$time) 
+  plot_pre$time = ifelse(plot_pre$time==2, 10, plot_pre$time) 
+  plot_pre$time = ifelse(plot_pre$time==3, 20, plot_pre$time) 
+  plot_pre$time = ifelse(plot_pre$time==4, 30, plot_pre$time) 
+  
+}
+
+#### for post
+plot_post <- post_full %>% 
+  filter(biosum_cond_id=="1200506050501500846430001") %>% 
+  filter(rxpackage=="001") %>% 
+  tail(4) %>% 
+  select(-tot_all) %>% 
+  mutate(time = rxcycle) 
+
+# make a loop to match cycle to year
+for (i in length(plot_post$time)){
+  
+  plot_post$time = ifelse(plot_post$time==1, 1, plot_post$time) 
+  plot_post$time = ifelse(plot_post$time==2, 11, plot_post$time) 
+  plot_post$time = ifelse(plot_post$time==3, 21, plot_post$time) 
+  plot_post$time = ifelse(plot_post$time==4, 31, plot_post$time) 
+  
+}
 
 
+# now combine pre and post by time and make sure time is an integer
+plot_pre_post <- tibble(time = 0:31)
+plot_pre_post$time <- as.integer(plot_pre_post$time)
+plot_pre$time <- as.integer(plot_pre$time)
+plot_post$time <- as.integer(plot_post$time)
+plot_pre_post <- left_join(plot_pre_post, plot_post) 
+plot_pre_post <- left_join(plot_pre_post, plot_pre)
+
+# expand out to get each year carbon increments
+plot_post_expand <- plot_post %>% 
+  # find the difference between the the stand carbon in cycle 1 and 2, 2 and 3 etc
+  mutate(diff = Total_Stand_Carbon - lag(Total_Stand_Carbon, default = first(Total_Stand_Carbon))) %>%
+  # what happens each year
+  mutate(each_year = diff/10) 
 
 
+# need to make a new dataframe that subtracts 
+plot_discount <- tibble(time = 0:31)
+plot_discount <- left_join(plot_discount, plot_post_expand) 
+plot_discount <- left_join(plot_discount, plot1)
 
-
-
-
-
-
-
+for (i in length(plot_discount$stand_c_expand)){
+  plot_discount$stand_c_expand = ifelse(plot_discount$stand_c_expand[1,11], 
+                                        plot_discount$Total_Stand_Carbon - plot_discount$Total_Stand_Carbon)
+}
 
 
 
