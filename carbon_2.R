@@ -121,7 +121,6 @@ for (i in length(plot_post$time)){
   
 }
 
-
 # now combine pre and post by time and make sure time is an integer
 plot_pre_post <- tibble(time = 0:31)
 plot_pre_post$time <- as.integer(plot_pre_post$time)
