@@ -98,11 +98,22 @@ for (i in 1:nrow(plot_all)){
 ## add a discounted column that is discounted by 0.05 
 # that is the cumulative sum for each year of discounted carbon
 
-plot_all <- plot_all %>% 
-  mutate(discount_carb = each_year/((1+0.05)^time)) %>% 
-  mutate(cum_discount_carb = cumsum(discount_carb))
+plot_all_discounts <- plot_all %>% 
+ # discounted carbon for each year
+   mutate(discount_carb = each_year/((1+0.05)^time)) %>% 
+ # cumulative discounted carbon
+   mutate(cum_discount_carb = cumsum(discount_carb)) %>% 
+  # discounted cost
+  mutate(discount_cost = complete_cpa/((1+0.05)^time)) %>% 
+  mutate(discount_cost = replace_na(discount_cost,0)) %>% 
+  mutate(cum_discount_cost = cumsum(discount_cost)) 
 
-
+## the information we want to end up with for each distinct plot and package
+final_cumulative <- plot_all_discounts %>% 
+  filter(time == 31) %>% 
+  select(biosum_cond_id, rxpackage, cum_discount_carb, cum_discount_cost)
+  
+# make a massive dataframe with the last line of this from each individual plot and package
 
 
 
