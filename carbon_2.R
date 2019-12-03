@@ -4,8 +4,8 @@
 ### for calculating change in carbon sequestration 
 ### over the course of the 40 year treatments
 # 
-# library(tidyverse)
-# library(RODBC)
+ library(tidyverse)
+ library(RODBC)
 # 
 # ## ensure that plot ids are read in as entire number (vs being auto-converted to scientific notation)
 # options(scipen = 999)
@@ -195,10 +195,17 @@ final_cumulative <- plot_all_discounts %>%
 # make a massive dataframe with the last line of this from each individual plot and package
 
 
+#######################################
+### thoughts on function workflow:  ###
+#######################################
 
 
+plot <- unique(all_data$biosum_cond_id)
 
 
-
-
+for (i in 1:length(plot)) {
+  #filter plot
+  # get unique packages for each plot
+  # other loop for each package
+}
 
