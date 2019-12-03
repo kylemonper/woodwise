@@ -10,9 +10,85 @@ library(RODBC)
 ## ensure that plot ids are read in as entire number (vs being auto-converted to scientific notation)
 options(scipen = 999)
 
-################################
-## read in data cleaned data ##
-#############################
+##################
+## read in data ##
+##################
+
+#get harvest cost/ relevant acres
+conn <- odbcConnectAccess2007("optimizer_results_cycle_1_MaxMerch_Carbon_Stored_2019-12-02_09-43-16.accdb")
+acres <- sqlFetch(conn, "stand_costs_revenue_volume_sum_by_rxpackage", as.is = T)
+cost <- sqlFetch(conn, "product_yields_net_rev_costs_summary_by_rx", as.is = T)
+odbcCloseAll()
+
+
+
+#carbon data
+conn <- odbcConnectAccess2007("PREPOST_FVS_CARBON.ACCDB")
+pre_carb <- sqlFetch(conn, "PRE_FVS_CARBON", as.is = T)
+post_carb <- sqlFetch(conn, "POST_FVS_CARBON", as.is = T)
+odbcCloseAll()
+
+
+# harvested carbon data
+conn <- odbcConnectAccess2007("PREPOST_FVS_HRV_CARBON.ACCDB")
+pre_carb_hrv <- sqlFetch(conn, "PRE_FVS_HRV_CARBON", as.is = T)
+post_carb_hrv <- sqlFetch(conn, "POST_FVS_HRV_CARBON", as.is = T)
+odbcCloseAll()
+
+
+
+
+####################
+## select columns ##
+####################
+
+## optimized packages + harvest cost per acre
+cost_sel <- cost %>% 
+  mutate(complete_cpa = harvest_onsite_cpa + haul_chip_cpa + haul_merch_cpa) %>% 
+  select(biosum_cond_id, rxpackage, rxcycle, complete_cpa) %>% 
+  arrange(biosum_cond_id, rxpackage, rxcycle)
+# by only selective harvest_cpa we are explicity ignoring transportation
+
+## stand carbon
+pre_carb_sel <- pre_carb %>% 
+  select(biosum_cond_id, rxpackage, rxcycle, Total_Stand_Carbon)
+
+post_carb_sel <- post_carb %>% 
+  select(biosum_cond_id, rxpackage, rxcycle, Total_Stand_Carbon)
+
+
+## harvest carbon
+pre_hrv_sel <- pre_carb_hrv %>% 
+  select(biosum_cond_id, rxpackage, rxcycle, Merch_Carbon_Removed)
+
+post_hrv_sel <- post_carb_hrv %>% 
+  select(biosum_cond_id, rxpackage, rxcycle, Merch_Carbon_Removed)
+
+
+
+## join carbon tables
+pre_carbon_tot <- left_join(pre_carb_sel, pre_hrv_sel)
+post_carbon_tot <- left_join(post_carb_sel, post_hrv_sel)
+
+## sum stand and harvest carbon to get total
+pre_carbon_tot$tot_all <- pre_carbon_tot$Total_Stand_Carbon 
+post_carbon_tot$tot_all <- post_carbon_tot$Total_Stand_Carbon
+
+
+# join in acreage
+pre_carbon_tot <- left_join(acres[,c("biosum_cond_id", "acres")], pre_carbon_tot)
+post_carbon_tot <- left_join(acres[,c("biosum_cond_id", "acres")], post_carbon_tot)
+
+### join to econ
+pre_full <- left_join(pre_carbon_tot, cost_sel)  %>% 
+  distinct()
+post_full <- left_join(post_carbon_tot, cost_sel)  %>% 
+  distinct()
+
+
+##### write to csv
+write_csv(pre_full, "pre_harv_full.csv")
+write_csv(post_full, "post_harv_full.csv")
 
 pre_full <- read_csv("pre_harv_full.csv")
 post_full <- read_csv("post_harv_full.csv")
