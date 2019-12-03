@@ -79,15 +79,32 @@ pre_post <- pre_post %>%
 plot_all <- tibble(time = 0:31)
 
 # now merge together the dataframes
-plot_all <- left_join(plot_all, pre_post, by = "time") %>% 
-  mutate(stand_carbon_exp = Total_Stand_Carbon)
+plot_all <- left_join(plot_all, pre_post, by = "time") 
 
+###
 # now need to fill in the empty total stand carbon columns 
-for (i in 2:nrow(plot_all)){
-  plot_all$stand_carbon_exp = ifelse(plot_all$time <=9, 
-                                       plot_all$stand_carbon_exp[i-1] - 1.3,
-                                       plot_all$stand_carbon_exp)
+for (i in 1:nrow(plot_all)){
+  plot_all$each_year = ifelse(plot_all$time <=9 & plot_all$time >=2, 
+                              plot_all$each_year[11],
+                              plot_all$each_year)
+  plot_all$each_year = ifelse(plot_all$time <=19 & plot_all$time >=12, 
+                              plot_all$each_year[21],
+                              plot_all$each_year)
+  plot_all$each_year = ifelse(plot_all$time <=29 & plot_all$time >=22, 
+                              plot_all$each_year[31],
+                              plot_all$each_year)
 }
+
+## add a discounted column that is discounted by 0.05 
+# that is the cumulative sum for each year of discounted carbon
+
+plot_all <- plot_all %>% 
+  mutate(discount_carb = each_year/((1+0.05)^time)) %>% 
+  mutate(cum_discount_carb = cumsum(discount_carb))
+
+
+
+
 
 
 
