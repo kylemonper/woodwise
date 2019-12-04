@@ -8,7 +8,7 @@
  library(RODBC)
 # 
 # ## ensure that plot ids are read in as entire number (vs being auto-converted to scientific notation)
-# options(scipen = 999)
+options(scipen = 999)
 # 
 # ##################
 # ## read in data ##
@@ -106,8 +106,6 @@ all_data <- bind_rows(pre_full,post_full)
 
 # filter down to just one plot
 plot_all <- all_data %>% 
-  filter(biosum_cond_id==1200506050501500909686420) %>% 
-  filter(rxpackage=="001") %>% 
   select(-tot_all) %>% 
   mutate(time = rxcycle)
 
@@ -125,6 +123,7 @@ for (i in length(plot_all$time)){
   
 }
 
+### now i need to start the function:
 
 ### clean merch_carbon removed
 # if cpa is NA, harvesting did not occur, therfor carbon removed == 0
