@@ -138,37 +138,10 @@ plot_all$complete_cpa <- if_else(plot_all$complete_cpa > 0 & plot_all$section ==
 
 #### Function that iterates for every unique plot and package ################
 
-# pull out unique biosum ids and unique packages
-uniq_biosum_ids <- plot_all %>% 
-  distinct(biosum_cond_id) %>% 
-  head(1)
-
-uniq_packages <- plot_all %>% 
-  distinct(rxpackage) %>% 
-  head(1)
-
-# loop through everything
-final_df = NULL
-for (biosum_id in uniq_biosum_ids){
-  for (package in uniq_packages){
-    
-    plot_all_filter <- plot_all %>% 
-      filter(biosum_cond_id == biosum_id) %>% 
-      filter(rxpackage == package) 
-    
-    test2 <- add_discounting(plot_all_filter) 
-    
-    df_total <- rbind(final_df, test2)
-    
-    }
-  
-  }
-
-
 add_discounting = function(df){
   pre_post <- df %>% 
     # make sure in the right order
-   arrange(time) %>% 
+    arrange(time) %>% 
     # find the difference between the the stand carbon in cycle 1 and 2, 2 and 3 etc
     mutate(diff = Total_Stand_Carbon - lag(Total_Stand_Carbon, default = first(Total_Stand_Carbon))) %>%
     # what happens each year
@@ -213,6 +186,43 @@ add_discounting = function(df){
   
   return(final_cumulative)
 }
+
+
+# pull out unique biosum ids and unique packages
+uniq_biosum_ids <- plot_all %>% 
+  distinct(biosum_cond_id) %>% 
+  head(10)
+
+uniq_biosum_ids <- uniq_biosum_ids[["biosum_cond_id"]]
+  
+uniq_packages <- plot_all %>% 
+  distinct(rxpackage) %>% 
+  head(10)
+
+uniq_packages <- uniq_packages[["rxpackage"]]
+
+# loop through everything
+final_df = NULL
+number_completed = 0
+total_to_complete = length(uniq_biosum_ids) * length(uniq_packages)
+for (biosum_id in uniq_biosum_ids){
+  for (package in uniq_packages){
+    plot_all_filter <- plot_all %>% 
+      filter(biosum_cond_id == biosum_id) %>% 
+      filter(rxpackage == package) 
+    
+    test2 <- add_discounting(plot_all_filter) 
+    
+    final_df <- rbind(final_df, test2)
+    
+    number_completed = number_completed + 1
+    if (number_completed %% 100 == 0 || number_completed == total_to_complete) {
+      print(sprintf("Percentage completion: %.2f%%", (number_completed / total_to_complete) * 100))
+    }
+  }
+}
+
+
 
 
 
