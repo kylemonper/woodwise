@@ -99,7 +99,7 @@ post_full$section <- "post"
 #carbon discounting
 ####################
 
-# test 1
+# Pre cleaning:
 
 ## full df 
 all_data <- bind_rows(pre_full,post_full)
@@ -123,8 +123,6 @@ for (i in length(plot_all$time)){
   
 }
 
-### now i need to start the function:
-
 ### clean merch_carbon removed
 # if cpa is NA, harvesting did not occur, therfor carbon removed == 0
 plot_all$Merch_Carbon_Removed <- if_else(is.na(plot_all$complete_cpa), 0, plot_all$Merch_Carbon_Removed)
@@ -138,73 +136,89 @@ plot_all$complete_cpa <- if_else(is.na(plot_all$complete_cpa), 0 , plot_all$comp
 plot_all$complete_cpa <- if_else(plot_all$complete_cpa > 0 & plot_all$section == "pre", 0 , plot_all$complete_cpa)
 
 
+#### Function that iterates for every unique plot and package ################
+
+# pull out unique biosum ids and unique packages
+uniq_biosum_ids <- plot_all %>% 
+  distinct(biosum_cond_id) %>% 
+  head(1)
+
+uniq_packages <- plot_all %>% 
+  distinct(rxpackage) %>% 
+  head(1)
+
+# loop through everything
+final_df = NULL
+for (biosum_id in uniq_biosum_ids){
+  for (package in uniq_packages){
+    
+    plot_all_filter <- plot_all %>% 
+      filter(biosum_cond_id == biosum_id) %>% 
+      filter(rxpackage == package) 
+    
+    test2 <- add_discounting(plot_all_filter) 
+    
+    df_total <- rbind(final_df, test2)
+    
+    }
+  
+  }
 
 
-
-#add columns that show to each year carbon increments
-# ** we want to look at from cycle 1--> 10, 11 --> 20, 21--> 30 so ignore the #
-# changes from 0-->1 etc bc that's merchantable **** #
-
-pre_post <- plot_all %>% 
-  # make sure in the right order
-  arrange(time) %>% 
-  # find the difference between the the stand carbon in cycle 1 and 2, 2 and 3 etc
-  mutate(diff = Total_Stand_Carbon - lag(Total_Stand_Carbon, default = first(Total_Stand_Carbon))) %>%
-  # what happens each year
-  mutate(each_year = diff/10)
-
-# now create a new dataframe with all of the times and make sure time is an integer
-tmp <- tibble(time = 0:31)
-
-# now merge together the dataframes
-plot_time <- left_join(tmp, pre_post, by = "time") 
-
-###
-# now need to fill in the empty total stand carbon columns 
-for (i in 1:nrow(plot_time)){
-  plot_time$each_year = ifelse(plot_time$time <=9 & plot_time$time >=2, 
-                              plot_time$each_year[11],
-                              plot_time$each_year)
-  plot_time$each_year = ifelse(plot_time$time <=19 & plot_time$time >=12, 
-                              plot_time$each_year[21],
-                              plot_time$each_year)
-  plot_time$each_year = ifelse(plot_time$time <=29 & plot_time$time >=22, 
-                              plot_time$each_year[31],
-                              plot_time$each_year)
+add_discounting = function(df){
+  pre_post <- df %>% 
+    # make sure in the right order
+   arrange(time) %>% 
+    # find the difference between the the stand carbon in cycle 1 and 2, 2 and 3 etc
+    mutate(diff = Total_Stand_Carbon - lag(Total_Stand_Carbon, default = first(Total_Stand_Carbon))) %>%
+    # what happens each year
+    mutate(each_year = diff/10)
+  
+  # now create a new dataframe with all of the times and make sure time is an integer
+  tmp <- tibble(time = 0:31)
+  
+  # now merge together the dataframes
+  plot_time <- left_join(tmp, pre_post, by = "time") 
+  
+  # now need to fill in the empty total stand carbon columns 
+  for (i in 1:nrow(plot_time)){
+    plot_time$each_year = ifelse(plot_time$time <=9 & plot_time$time >=2, 
+                                 plot_time$each_year[11],
+                                 plot_time$each_year)
+    plot_time$each_year = ifelse(plot_time$time <=19 & plot_time$time >=12, 
+                                 plot_time$each_year[21],
+                                 plot_time$each_year)
+    plot_time$each_year = ifelse(plot_time$time <=29 & plot_time$time >=22, 
+                                 plot_time$each_year[31],
+                                 plot_time$each_year)
+  }
+  
+  ## add a discounted column that is discounted by 0.05 
+  # that is the cumulative sum for each year of discounted carbon
+  
+  plot_time_discounts <- plot_time %>% 
+    # discounted carbon for each year
+    # mutate(discount_carb = each_year/((1+0.05)^time)) %>% 
+    # cumulative discounted carbon
+    mutate(cum_discount_carb = cumsum(each_year/((1+0.05)^time))) %>% 
+    # discounted cost
+    mutate(discount_cost = complete_cpa/((1+0.05)^time)) %>% 
+    mutate(discount_cost = replace_na(discount_cost,0)) %>% 
+    mutate(cum_discount_cost = cumsum(discount_cost)) 
+  
+  ## the information we want to end up with for each distinct plot and package
+  final_cumulative <- plot_time_discounts %>% 
+    filter(time == 31) %>% 
+    select(biosum_cond_id, rxpackage, cum_discount_carb, cum_discount_cost)
+  
+  return(final_cumulative)
 }
 
-## add a discounted column that is discounted by 0.05 
-# that is the cumulative sum for each year of discounted carbon
 
-plot_time_discounts <- plot_time %>% 
- # discounted carbon for each year
-   mutate(discount_carb = each_year/((1+0.05)^time)) %>% 
- # cumulative discounted carbon
-   mutate(cum_discount_carb = cumsum(discount_carb)) %>% 
-  # discounted cost
-  mutate(discount_cost = complete_cpa/((1+0.05)^time)) %>% 
-  mutate(discount_cost = replace_na(discount_cost,0)) %>% 
-  mutate(cum_discount_cost = cumsum(discount_cost)) 
 
-## the information we want to end up with for each distinct plot and package
-final_cumulative <- plot_all_discounts %>% 
-  filter(time == 31) %>% 
-  select(biosum_cond_id, rxpackage, cum_discount_carb, cum_discount_cost)
-  
 # make a massive dataframe with the last line of this from each individual plot and package
 
 
-#######################################
-### thoughts on function workflow:  ###
-#######################################
 
 
-plot <- unique(all_data$biosum_cond_id)
-
-
-for (i in 1:length(plot)) {
-  #filter plot
-  # get unique packages for each plot
-  # other loop for each package
-}
 
