@@ -4,17 +4,33 @@
 ### for calculating change in carbon sequestration 
 ### over the course of the 40 year treatments
 # 
+
+#### next steps: ####
+##~    - think about products
+##~      -- merchantble (smith paper/ http://maps.gis.usu.edu/HWP/Home/About ?)
+##~       - non-merch: Bodies numbers ()
+##~    - subtract baseline
+##~      -- HOW??
+##~    - vary discount rates (read SCC article: https://www.carbonbrief.org/qa-social-cost-carbon)
+##~    - clean workflow
+
+
+### library ####
+
  library(tidyverse)
  library(RODBC)
-# 
-# ## ensure that plot ids are read in as entire number (vs being auto-converted to scientific notation)
+
+## ensure that plot ids are read in as entire number (vs being auto-converted to scientific notation)
 options(scipen = 999)
-# 
-# ##################
-# ## read in data ##
-# ##################
-# 
-# #get harvest cost/ relevant acres
+
+
+
+
+##################
+## read in data ##
+##################
+
+#get harvest cost/ relevant acres
 conn <- odbcConnectAccess2007("optimizer_results_cycle_1_MaxMerch_Carbon_Stored_2019-12-02_09-43-16.accdb")
 acres <- sqlFetch(conn, "stand_costs_revenue_volume_sum_by_rxpackage", as.is = T)
 cost <- sqlFetch(conn, "product_yields_net_rev_costs_summary_by_rx", as.is = T)
@@ -35,19 +51,34 @@ pre_carb_hrv <- sqlFetch(conn, "PRE_FVS_HRV_CARBON", as.is = T)
 post_carb_hrv <- sqlFetch(conn, "POST_FVS_HRV_CARBON", as.is = T)
 odbcCloseAll()
 
+#### get lat long data
+conn <- odbcConnectAccess2007("master.mdb")
+plot_m <- sqlFetch(conn, "plot", as.is = T)
+cond_m <- sqlFetch(conn, "cond", as.is = T)
+odbcCloseAll()
+
+
+plot_sel <- plot_m %>%
+  select(biosum_plot_id, lat, lon)
+
+cond_sel <- cond_m %>%
+  select(biosum_cond_id, biosum_plot_id)
+
+cond_lat_lon <- left_join(cond_sel, plot_sel)
 
 
 
-####################
-## select columns ##
-####################
+
+#########################
+## select columns/join ##
+#########################
 
 ## optimized packages + harvest cost per acre
 cost_sel <- cost %>%
   mutate(complete_cpa = harvest_onsite_cpa + haul_chip_cpa + haul_merch_cpa) %>%
-  select(biosum_cond_id, rxpackage, rxcycle, complete_cpa) %>%
+  select(biosum_cond_id, rxpackage, rxcycle, complete_cpa, chip_yield_gt, merch_yield_cf) %>%
   arrange(biosum_cond_id, rxpackage, rxcycle)
-# by only selective harvest_cpa we are explicity ignoring transportation
+
 
 ## stand carbon
 pre_carb_sel <- pre_carb %>%
@@ -55,6 +86,7 @@ pre_carb_sel <- pre_carb %>%
 
 post_carb_sel <- post_carb %>%
   select(biosum_cond_id, rxpackage, rxcycle, Total_Stand_Carbon)
+
 
 
 ## harvest carbon
@@ -70,22 +102,30 @@ post_hrv_sel <- post_carb_hrv %>%
 pre_carbon_tot <- left_join(pre_carb_sel, pre_hrv_sel)
 post_carbon_tot <- left_join(post_carb_sel, post_hrv_sel)
 
-## sum stand and harvest carbon to get total
-pre_carbon_tot$tot_all <- pre_carbon_tot$Total_Stand_Carbon
-post_carbon_tot$tot_all <- post_carbon_tot$Total_Stand_Carbon
 
 
 # join in acreage
-pre_carbon_tot <- left_join(acres[,c("biosum_cond_id", "acres")], pre_carbon_tot)
-post_carbon_tot <- left_join(acres[,c("biosum_cond_id", "acres")], post_carbon_tot)
+pre_carbon_tot <- left_join(acres[,c("biosum_cond_id", "acres", "owngrpcd")], pre_carbon_tot)
+post_carbon_tot <- left_join(acres[,c("biosum_cond_id", "acres", "owngrpcd")], post_carbon_tot)
 
 ### join to econ
 pre_full <- left_join(pre_carbon_tot, cost_sel)  %>%
   distinct()
 post_full <- left_join(post_carbon_tot, cost_sel)  %>%
   distinct()
-# 
-# 
+
+
+
+#### give cond_id new numbers that will make them easier to join together after reimporting data
+plots <- unique(post_full$biosum_cond_id)
+new_id <- data.frame(biosum_cond_id = plots, ID = 1:length(plots))
+
+
+plots_loc <- left_join(new_id, cond_lat_lon)
+
+
+# write_csv(plots_loc, "plot_loc.csv")
+
 # ##### write to csv
 # write_csv(pre_full, "pre_harv_full.csv")
 # write_csv(post_full, "post_harv_full.csv")
@@ -93,23 +133,29 @@ post_full <- left_join(post_carbon_tot, cost_sel)  %>%
 # pre_full <- read_csv("pre_harv_full.csv")
 # post_full <- read_csv("post_harv_full.csv")
 
+
+# name pre and post for future reference
 pre_full$section <- "pre"
 post_full$section <- "post"
-####################
-#carbon discounting
-####################
 
-# Pre cleaning:
 
 ## full df 
 all_data <- bind_rows(pre_full,post_full)
 
+all_data <- left_join(all_data, new_id)
+
+
+#####################
+#### data cleaning ##
+#####################
+
+
 # filter down to just one plot
 plot_all <- all_data %>% 
-  select(-tot_all) %>% 
-  mutate(time = rxcycle)
+  mutate(time = rxcycle) %>% 
+  filter(biosum_cond_id %in% unique(all_data$biosum_cond_id)[10] & rxpackage == "001")
 
-# make a loop to match cycle to year
+#### match cycle to year ####
 for (i in length(plot_all$time)){
   
   plot_all$time = ifelse(plot_all$time==1 & plot_all$section == "pre", 0, plot_all$time) 
@@ -123,11 +169,22 @@ for (i in length(plot_all$time)){
   
 }
 
-### clean merch_carbon removed
+#make sure time is numeric
+plot_all$time <- as.numeric(plot_all$time)
+
+
+### clean merch_carbon removed ####
+
 # if cpa is NA, harvesting did not occur, therfor carbon removed == 0
 plot_all$Merch_Carbon_Removed <- if_else(is.na(plot_all$complete_cpa), 0, plot_all$Merch_Carbon_Removed)
 # remove duplicate caused by the pre/post
 plot_all$Merch_Carbon_Removed <- if_else(plot_all$Merch_Carbon_Removed > 0 & plot_all$section == "pre" ,0, plot_all$Merch_Carbon_Removed)
+
+### repeat for chip_yield
+plot_all$chip_yield_gt <- if_else(is.na(plot_all$complete_cpa), 0, plot_all$chip_yield_gt)
+# remove duplicate caused by the pre/post
+plot_all$chip_yield_gt <- if_else(plot_all$chip_yield_gt > 0 & plot_all$section == "pre" ,0, plot_all$chip_yield_gt)
+
 
 ## clean cpa
 # if cpa is NA, harvesting did not occur, therfor cost == 0
@@ -136,8 +193,14 @@ plot_all$complete_cpa <- if_else(is.na(plot_all$complete_cpa), 0 , plot_all$comp
 plot_all$complete_cpa <- if_else(plot_all$complete_cpa > 0 & plot_all$section == "pre", 0 , plot_all$complete_cpa)
 
 
-#### Function that iterates for every unique plot and package ################
 
+############################################
+#####  add discounting and optimize  #######
+############################################
+
+### create functions
+
+## discount
 add_discounting = function(df){
   pre_post <- df %>% 
     # make sure in the right order
@@ -147,8 +210,7 @@ add_discounting = function(df){
     # what happens each year
     mutate(each_year = diff/10)
   
-  #make sure time is numeric
-  pre_post$time <- as.numeric(pre_post$time)
+  
   
   # now create a new dataframe with all of the times and make sure time is an integer
   tmp <- tibble(time = 0:31)
@@ -191,43 +253,93 @@ add_discounting = function(df){
 }
 
 
-# pull out unique biosum ids and unique packages
-uniq_biosum_ids <- plot_all %>% 
-  distinct(biosum_cond_id) 
+## create function `optimize_treatmen` that applies the discount function  ^ to each plot+package 
+## then selects the optimal package for each plot
+## optimal == lowest (non-negative), marginal cost
 
-uniq_biosum_ids <- uniq_biosum_ids[["biosum_cond_id"]]
+optimize_treatment <- function(df) {
   
-uniq_packages <- plot_all %>% 
-  distinct(rxpackage)
-
-uniq_packages <- uniq_packages[["rxpackage"]]
-
-# loop through everything
-final_df = NULL
-number_completed = 0
-total_to_complete = length(uniq_biosum_ids) * length(uniq_packages)
-for (biosum_id in uniq_biosum_ids){
-  for (package in uniq_packages){
-    plot_all_filter <- plot_all %>% 
-      filter(biosum_cond_id == biosum_id) %>% 
-      filter(rxpackage == package) 
+  
+  # pull out unique biosum ids and unique packages
+  uniq_biosum_ids <- df %>% 
+    distinct(biosum_cond_id) 
+  
+  uniq_biosum_ids <- uniq_biosum_ids[["biosum_cond_id"]]
+  
+  # loop through everything
+  final_df = NULL
+  optimal_full <- NULL
+  
+  number_completed = 0
+  total_to_complete = length(uniq_biosum_ids)
+  
+  for (i in 1:length(uniq_biosum_ids)){
     
-    test2 <- add_discounting(plot_all_filter) 
+    # select plot
+    id <- uniq_biosum_ids[i]
     
-    final_df <- rbind(final_df, test2)
+    plot <- plot_all %>% 
+      filter(biosum_cond_id == paste(id))
     
-    number_completed = number_completed + 1
-    if (number_completed %% 100 == 0 || number_completed == total_to_complete) {
-      print(sprintf("Percentage completion: %.2f%%", (number_completed / total_to_complete) * 100))
+    uniq_packages <- unique(plot$rxpackage)
+    
+    for (j in 1:length(uniq_packages)){
+      
+      pkg <- uniq_packages[j]
+      
+      plot_package <- plot %>% 
+        filter(rxpackage == pkg) 
+      
+      test2 <- add_discounting(plot_package) 
+      
+      final_df <- rbind(final_df, test2)
+      
+      
     }
+    
+    optimal <- final_df %>% 
+      mutate(cpu = cum_discount_cost/cum_discount_carb) %>% 
+      filter(cpu > 0) %>% 
+      filter(cpu == min(cpu)) 
+    
+    rm(final_df)
+    final_df <- NULL
+    
+    if (i == 1) {
+      optimal_full <- optimal
+    } else {
+      optimal_full <- bind_rows(optimal_full, optimal)
+    }
+    
+    
+    ### progress tracker
+    number_completed = number_completed + 1
+    if (number_completed %% 200 == 0 || number_completed == total_to_complete) {
+      print(sprintf("Percentage completion: %.2f%%", (number_completed / length(uniq_biosum_ids)) * 100))
+    }
+    
   }
+  
+  return(optimal_full)
+  
 }
 
+## run
+optimal_treatments <- optimize_treatment(plot_all)
 
 
 
 
-# make a massive dataframe with the last line of this from each individual plot and package
+
+
+
+
+
+
+
+
+
+
 
 
 
