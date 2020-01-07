@@ -89,23 +89,22 @@ plot_county <- left_join(plot_county, harv)
 
 plot_area <- left_join(plot_county, harvest_2012, by = c("NAME" = "county"))
 
-### remove rows where area == NA (this means they were not harvested in 2012)
+### remove rows where area == NA (this means harvesting did not occur in this area within 2012)
+plot_actual <- filter(plot_area, !is.na(area)) 
 
-plot_actual <- filter(plot_area, !is.na(area))
-
-## convert merch_yield_cf/acre to mmbf (total per site)
-plot_bf <- mutate(plot_actual, merch_yield_mmbf = round(merch_yield_cf * acres * 12 / 1000000,2))
+## convert merch_yield_cf to mmbf 
+plot_bf <- mutate(plot_actual, merch_yield_mmbf = round(merch_yield_cf * 12 / 1000000,8))
 
 
-#### select only private plots, clearcut package, and first cycle
-private_cc <- plot_bf %>% 
-  filter(rxpackage == "032" & owngrpcd == 40 & rxcycle == 1) %>% 
-  select(biosum_cond_id, rxpackage, NAME, area, mmbf_county, mmbf_area, merch_yield_mmbf)
-
-#### federal plots, !!!!some package!!!! and first cycle
-federal <- plot_bf %>% 
-  filter(rxpackage == "002" & owngrpcd == 10 & rxcycle == 1)  %>% 
-  select(biosum_cond_id, rxpackage, NAME, area, mmbf_county, mmbf_area, merch_yield_mmbf)
+#### select only "baseline packages" (clearcut for private, and !!!!!!002!!!!! for federal), and first cycle
+# is 002 the right package to use?
+plot_sel <- plot_bf %>% 
+  filter(rxpackage == "032" &  rxcycle == 1 & owngrpcd == 40 |
+           rxpackage == "002" &  rxcycle == 1 & owngrpcd == 10) %>% 
+  select(biosum_cond_id, acres, owngrpcd, rxpackage, NAME, mmbf_county, merch_yield_mmbf) %>% 
+  rename("county" = "NAME")
+### get rid of pre and post
+plot_sel <- distinct(plot_sel)
 
 
 
@@ -122,92 +121,121 @@ federal <- plot_bf %>%
 private_pct <- .837
 federal_pct <- 1 - private_pct
 
-private_cc$mmbf_target <- private_cc$mmbf_area * private_pct
-federal$mmbf_target <- federal$mmbf_area * federal_pct
+## write function that sets the target harvest for each owner type within each county. 
+#~ set target for total harvest based on each ratio^^
 
 
-#### private by 'area' ####
+set_target <- function(county_sel) {
+  ## filter county
+  selected_county <- filter(plot_sel, county == county_sel)
+
+  ## set target based on defined ratio
+  result <- selected_county %>% 
+     mutate(target = if_else(owngrpcd == 40, mmbf_county * private_pct, mmbf_county * federal_pct))
+  
+
+}
+
+unique_counties <- unique(plot_sel$county)
+target_list <- lapply(unique_counties, set_target)
+plot_targets <- bind_rows(target_list)
+
 
 #### function for randomizing sites within each area based on some specifed harvest range (detirmed by the error around the target harvest value for each area)
-## added the last argument (min_sites) specifically for federal sites in th san joaquine
-randomize_sites <- function(data, location, error, min_sites = 2){
+## FUNCTION WORKFLOW:
+#~ select sites within specific county & ownder group & are harvested in year 0
+#~ generate random numbers to simulate the harvested area of each plot (turning mmbf/acre into mmbf)
+#~ randomly arrange [select] sites
+#~ take the cumulative cumulative sum of their harvest
+#~ if somehwhere that cumulative sum is within 5% of the target harvest for that county, select that arrangment of random plots/harvested area
+#~ if after 10,000 random simulation, nothing is chosen, begin increasing acceptable error 
+
+
+
+randomize_sites <- function(location, ownrcd){
+  ## track status when running lapply()
+  print(location)
   
   #filter data for sites that are in area and are harvested during rxcycle 1
-  data_sel <- data %>% 
-    filter(area == location & merch_yield_mmbf > 0)
+  data_filt <- plot_targets %>% 
+    filter(county == location & owngrpcd == ownrcd & merch_yield_mmbf > 0)
   
-  #define target mmbf for this area
-  target <- data_sel$mmbf_target[1]
-  
-  ### randomLY select sites until at least 2 sites together harvest levels are with 20% of target
-  results <- NULL
-  
-  while(is.null(results)) {
-    
-    #randomly arrange sites
-    rand_data <- data_sel[sample(1:nrow(data_sel)),]
-    
-    #calculate cummulative sum 
-    cum_sum <- rand_data %>% 
-      mutate(cum_sum = cumsum(merch_yield_mmbf))
-    
-    ## select at least 2 sites that are within 20% of target
-    selected <- cum_sum %>% 
-      slice(min_sites:nrow(rand_nc)) %>% ## by slicing at two, we are ensuring that at least two plots are chosen !!!do we want this !!!????
-      filter(cum_sum <= target * (1 + error) & cum_sum >= target * (1 - error)) ### filter for total harvest values w/in 20% of target
-    
-    ## if at least two sites were successfully selected, get list of sites, otherwise repeat loop
-    if(nrow(selected) >= min_sites){
-      results <- cum_sum %>% 
-        filter(cum_sum <= target * 1.2)
+  #if no plots meet these conditions, stop function
+  if(nrow(data_filt) > 0){
+    results <- NULL
     } else {
-      results <- NULL
-    }
+  
+    #define target mmbf for this area (for use in error calculation)
+    target <- data_sel$target[1]
     
-  }
+    # this is to help define the exponential decay function for selecting random numbers
+    ratio <- target/sum(data_filt$merch_yield_mmbf)
+    if(ratio < 50){ratio <- 50}
+    
+    ### randomly select sites until at selected sites are within some error of the target value
+    results <- NULL
+    i <- 1
+    while(is.null(results)) {
+    
+      ## randomly assign the number of acres to be harvest
+      #~ first step: create vector (of same length as filtered data) filled with random numbers
+      
+      random_harvest_acres <- data.frame(random_harvest_assign = rexp(nrow(data_filt),1/ratio))
+      
+      ## bind this column to data and get total random harvest
+      total_acres <- bind_cols(data_filt, random_harvest_acres)
+      
+        
+      total_harvest <- total_acres %>% 
+        mutate(random_harvest_assign = if_else(random_harvest_assign > acres, acres, random_harvest_assign),
+               total_yield = random_harvest_assign*merch_yield_mmbf)
+  
+      
+      ## randomly arrange sites
+      rand_data <- total_harvest[sample(1:nrow(total_harvest)),]
+      
+      #calculate cummulative sum 
+      cum_sum <- rand_data %>% 
+        mutate(cum_sum = cumsum(total_yield))
+      
+      #### assign error value of 5%; if we've gone through >10,000 while loops, increase the error by 5%
+      ## this is to ensure that the loop will eventually finish if for some reason the numbers arn't working well
+      if(i < 10000){
+        error <- .05
+      } else {
+          error <- .05 + (i/10000 * .05)
+        }
+      
+      ## select at least 2 sites that are within 20% of target
+      selected <- cum_sum %>% 
+        filter(cum_sum <= target * (1 + error) & cum_sum >= target * (1 - error)) ### filter for total harvest values w/in some error of the target
+      
+      ## if at least two sites were successfully selected, get list of sites, otherwise repeat loop
+      if(nrow(selected) >= 1){
+        results <- cum_sum %>% 
+          filter(cum_sum <= target * (1 + error))
+        results$error <- error
+      } else {
+        results <- NULL
+      }
+      
+      #count number of loops
+      i <- i+1
+    }
+  } 
   
   return(results)
 }
 
 
-##### select private sites ######
-private_nc <- randomize_sites(private_cc, "North Coast", .1)
-private_sac <- randomize_sites(private_cc, "Sacramento", .1)
-private_int <- randomize_sites(private_cc, "Northern Interior", .1)
-private_sj <- randomize_sites(private_cc, "San Joaquin", .2) #any less error does not work because the target is too low w/in this region
 
-private_sites <- bind_rows(private_nc, private_sac, private_int, private_sj)
+random_site_public <- lapply(unique_counties, randomize_sites, ownrcd = 10)
+random_site_private <- lapply(unique_counties, randomize_sites, ownrcd = 40)
 
-## how close are we to our target
-total_private_harvest <- sum(private_sites$merch_yield_mmbf)
+random_public <- bind_rows(random_site_public)
+random_private <- bind_rows(random_site_private)
 
-paste("accuracy of private:", round(total_private_harvest/1193,4)*100)
-
-
-
-
-##### select federal sites ######
-federal_nc <- randomize_sites(federal, "North Coast", .1)
-federal_sac <- randomize_sites(federal, "Sacramento", .15)
-federal_int <- randomize_sites(federal, "Northern Interior", .1)
-federal_sj <- randomize_sites(federal, "San Joaquin", .1, 1) 
-
-federal_sites <- bind_rows(federal_nc, federal_sac, federal_int, federal_sj)
-
-## how close are we to our target
-total_federal_harvest <- sum(federal_sites$merch_yield_mmbf)
-
-paste("accuracy of federal:", round(total_federal_harvest/203,4)*100)
-
-
-
-
-
-
-
-
-
-
+selected_sites <- bind_rows(random_private, random_public)
 
 
 
