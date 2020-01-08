@@ -2,7 +2,7 @@
 ### This code reads in relevent pre and post
 ### tables along with the optimization selections
 ### for calculating change in carbon sequestration 
-### over the course of the 40 year treatments
+### over the course of the 32 years of treatments
 # 
 
 #### next steps: ####
@@ -10,7 +10,7 @@
 ##~      -- merchantble (smith paper/ http://maps.gis.usu.edu/HWP/Home/About ?)
 ##~       - non-merch: Bodies numbers ()
 ##~    - subtract baseline
-##~      -- HOW??
+##~      -- see baseline_calc.R , but where to add into the workflow?
 ##~    - vary discount rates (read SCC article: https://www.carbonbrief.org/qa-social-cost-carbon)
 ##~    - clean workflow
 
@@ -69,9 +69,9 @@ cond_lat_lon <- left_join(cond_sel, plot_sel)
 
 
 
-#########################
-## select columns/join ##
-#########################
+##############################
+#### select columns/join ####
+############################
 
 ## optimized packages + harvest cost per acre
 cost_sel <- cost %>%
@@ -144,6 +144,192 @@ all_data <- bind_rows(pre_full,post_full)
 
 all_data <- left_join(all_data, new_id)
 
+## clean environment of everything except the new full dataset
+rm(list = setdiff(ls(),"all_data"))
+
+
+###############################
+#### Select Baseline plots ####
+###############################
+
+
+##############################
+####### data wrangling #######
+##############################
+# read in spatial joined plot w/ counties
+# read in harvest data from 2012
+# join, convert to mmb, and select appropriate data for private and federal
+
+
+counties <- read_csv("plot_county.csv") %>% 
+  select(ID, NAME)
+harvest_2012 <- read_csv("CA_harvest_2012.csv")
+
+### joing with plot_all (from carbon_2.R after running through line 144)
+plot_county <- left_join(all_data, counties)
+plot_area <- left_join(plot_county, harvest_2012, by = c("NAME" = "county"))
+
+### remove rows where area == NA (this means harvesting did not occur in this area within 2012)
+plot_actual <- filter(plot_area, !is.na(area)) 
+
+## convert merch_yield_cf to mmbf 
+plot_bf <- mutate(plot_actual, merch_yield_mmbf = round(merch_yield_cf * 12 / 1000000,8))
+
+#### select only "baseline packages" (clearcut for private, and !!!!!!002!!!!! for federal), and first cycle
+# is 002 the right package to use?
+plot_sel <- plot_bf %>% 
+  filter(rxpackage == "032" &  rxcycle == 1 & owngrpcd == 40 |
+           rxpackage == "002" &  rxcycle == 1 & owngrpcd == 10) %>% 
+  select(biosum_cond_id, acres, owngrpcd, rxpackage, NAME, mmbf_county, merch_yield_mmbf) %>% 
+  rename("county" = "NAME")
+### get rid of pre and post
+plot_sel <- distinct(plot_sel)
+
+
+###############################
+####### run selection  ########
+###############################
+### STEPS:
+#~ 1) set targets for private and federal w/in each county
+#~ 2) randomly select plots within each county that meet those targets.
+
+## first: define percent allocation of harvest to federal and private (based on 2012 harvest report)
+#~ !!!! this is a major assumption that this same ration applies accross all counties/ areas
+
+private_pct <- .837
+federal_pct <- 1 - private_pct
+
+## write function that sets the target harvest for each owner type within each county. 
+#~ set target for total harvest based on each ratio^^
+
+
+set_target <- function(county_sel) {
+  ## filter county
+  selected_county <- filter(plot_sel, county == county_sel)
+  
+  ## set target based on defined ratio
+  result <- selected_county %>% 
+    mutate(target = if_else(owngrpcd == 40, mmbf_county * private_pct, mmbf_county * federal_pct))
+  
+  
+}
+
+unique_counties <- unique(plot_sel$county)
+target_list <- lapply(unique_counties, set_target)
+plot_targets <- bind_rows(target_list)
+
+
+#### function for randomizing sites within each area based on some specifed harvest range (detirmed by the error around the target harvest value for each area)
+## FUNCTION WORKFLOW:
+#~ select sites within specific county & ownder group & are harvested in year 0
+#~ generate random numbers to simulate the harvested area of each plot (turning mmbf/acre into mmbf)
+#~ randomly arrange [select] sites
+#~ take the cumulative cumulative sum of their harvest
+#~ if somehwhere that cumulative sum is within 5% of the target harvest for that county, select that arrangment of random plots/harvested area
+#~ if after 10,000 random simulation, nothing is chosen, begin increasing acceptable error 
+
+
+
+randomize_sites <- function(location, ownrcd){
+  ## track status when running lapply()
+  print(location)
+  
+  #filter data for sites that are in area and are harvested during rxcycle 1
+  data_filt <- plot_targets %>% 
+    filter(county == location & owngrpcd == ownrcd & merch_yield_mmbf > 0)
+  
+  #if no plots meet these conditions, stop function
+  if(nrow(data_filt) == 0){
+    results <- NULL
+  } else {
+    
+    #define target mmbf for this area (for use in error calculation)
+    target <- data_filt$target[1]
+    
+    # this is to help define the exponential decay function for selecting random numbers
+    ratio <- target/sum(data_filt$merch_yield_mmbf)
+    #### for some counties, too small a ratio (i.e expnential decay function) doesn't give large enough harvest restults, so set minimum ration to 50
+    if(ratio < 50){
+      ratio <- 50
+    }else{
+        ratio <- ratio
+      }
+    
+    ### randomly select sites until at selected sites are within some error of the target value
+    results <- NULL
+    i <- 1
+    while(is.null(results)) {
+      
+      ## randomly assign the number of acres to be harvest
+      #~ first step: create vector (of same length as filtered data) filled with random numbers
+      
+      random_harvest_acres <- data.frame(random_harvest_assign = rexp(nrow(data_filt),1/ratio))
+      
+      ## bind this column to data and get total random harvest
+      total_acres <- bind_cols(data_filt, random_harvest_acres)
+      
+      
+      total_harvest <- total_acres %>% 
+        mutate(random_harvest_assign = if_else(random_harvest_assign > acres, acres, random_harvest_assign),
+               total_yield = random_harvest_assign*merch_yield_mmbf)
+      
+      
+      ## randomly arrange sites
+      rand_data <- total_harvest[sample(1:nrow(total_harvest)),]
+      
+      #calculate cummulative sum 
+      cum_sum <- rand_data %>% 
+        mutate(cum_sum = cumsum(total_yield))
+      
+      #### assign error value of 1%; if we've gone through >2,000 while loops, increase the error by 1%
+      ## this is to ensure that the loop will eventually finish if for some reason the numbers arn't working well
+      if(i < 2000){
+        error <- .01
+      } else if(i %% 2000 == 0) {
+        error <- .01 + (i/2000 * .01)
+      }
+      
+      ## select at least 2 sites that are within 20% of target
+      selected <- cum_sum %>% 
+        filter(cum_sum <= target * (1 + error) & cum_sum >= target * (1 - error)) ### filter for total harvest values w/in some error of the target
+      
+      ## if at least two sites were successfully selected, get list of sites, otherwise repeat loop
+      if(nrow(selected) >= 1){
+        results <- cum_sum %>% 
+          filter(cum_sum <= target * (1 + error))
+        results$error <- error
+      } else {
+        results <- NULL
+      }
+      
+      #count number of loops
+      i <- i+1
+    }
+  } 
+  
+  return(results)
+}
+
+
+
+random_site_public <- lapply(unique_counties, randomize_sites, ownrcd = 10)
+random_site_private <- lapply(unique_counties, randomize_sites, ownrcd = 40)
+
+random_public <- bind_rows(random_site_public)
+random_private <- bind_rows(random_site_private)
+
+## check rough accuracy towards targets:
+paste("total harvest accuracy:",(sum(random_private$total_yield) + sum(random_public$total_yield))/1425)
+paste("private harvest accuracy:", sum(random_private$total_yield)/1197)
+paste("public harvest accuracy:",sum(random_public$total_yield)/203)
+
+selected_sites <- bind_rows(random_private, random_public)
+
+
+
+######################################
+######## Carbon Discounting ##########
+######################################
 
 #####################
 #### data cleaning ##
@@ -152,8 +338,7 @@ all_data <- left_join(all_data, new_id)
 
 # filter down to just one plot
 plot_all <- all_data %>% 
-  mutate(time = rxcycle) %>% 
-  filter(biosum_cond_id %in% unique(all_data$biosum_cond_id)[10] & rxpackage == "001")
+  mutate(time = rxcycle) 
 
 #### match cycle to year ####
 for (i in length(plot_all$time)){
@@ -199,6 +384,9 @@ plot_all$complete_cpa <- if_else(plot_all$complete_cpa > 0 & plot_all$section ==
 ############################################
 
 ### create functions
+
+## !!!!NOTE!!!! (1/7/20)
+#~ keep acres in final output
 
 ## discount
 add_discounting = function(df){
@@ -253,25 +441,24 @@ add_discounting = function(df){
 }
 
 
-## create function `optimize_treatmen` that applies the discount function  ^ to each plot+package 
-## then selects the optimal package for each plot
-## optimal == lowest (non-negative), marginal cost
+## create function that applies the discount function  ^ to each plot+package 
 
-optimize_treatment <- function(df) {
+
+discount_all <- function(df) {
   
   
-  # pull out unique biosum ids and unique packages
+  # pull out unique biosum ids 
   uniq_biosum_ids <- df %>% 
     distinct(biosum_cond_id) 
   
   uniq_biosum_ids <- uniq_biosum_ids[["biosum_cond_id"]]
   
   # loop through everything
-  final_df = NULL
-  optimal_full <- NULL
-  
-  number_completed = 0
-  total_to_complete = length(uniq_biosum_ids)
+  final_total <- NULL
+  final_plot <- NULL
+
+  number_completed <- 0
+  total_to_complete <- length(uniq_biosum_ids)
   
   for (i in 1:length(uniq_biosum_ids)){
     
@@ -281,6 +468,7 @@ optimize_treatment <- function(df) {
     plot <- plot_all %>% 
       filter(biosum_cond_id == paste(id))
     
+    # get all packages that pertain to this plot, loop through these, applying the discounting function to each
     uniq_packages <- unique(plot$rxpackage)
     
     for (j in 1:length(uniq_packages)){
@@ -290,45 +478,57 @@ optimize_treatment <- function(df) {
       plot_package <- plot %>% 
         filter(rxpackage == pkg) 
       
-      test2 <- add_discounting(plot_package) 
+      discounted <- add_discounting(plot_package) 
       
-      final_df <- rbind(final_df, test2)
+      final_plot <- rbind(final_plot, discounted)
       
       
     }
     
-    optimal <- final_df %>% 
-      mutate(cpu = cum_discount_cost/cum_discount_carb) %>% 
-      filter(cpu > 0) %>% 
-      filter(cpu == min(cpu)) 
-    
-    rm(final_df)
-    final_df <- NULL
-    
-    if (i == 1) {
-      optimal_full <- optimal
-    } else {
-      optimal_full <- bind_rows(optimal_full, optimal)
-    }
+    final_total <- rbind(final_total, final_plot)
+    final_plot <- NULL
     
     
     ### progress tracker
     number_completed = number_completed + 1
-    if (number_completed %% 200 == 0 || number_completed == total_to_complete) {
+    if (number_completed %% 100 == 0 || number_completed == total_to_complete) {
       print(sprintf("Percentage completion: %.2f%%", (number_completed / length(uniq_biosum_ids)) * 100))
     }
     
   }
   
-  return(optimal_full)
+  return(final_total)
   
 }
 
-## run
-optimal_treatments <- optimize_treatment(plot_all)
+
+### discount all packages
+## this will take ~20 minutes
+all_discounted <- discount_all(plot_all)
 
 
 
+### next steps:
+#~ incorperate baseline
+#     baseline for non-selected plots == grow only
+#     baseline for selected plots == (acres_assign)*carbon[for base package] + (acres-acres_assign)*carbon[for baseline]
+
+
+#### note to self:
+#~ make sure that we keep units as /acre untill very end
+
+
+
+### final step:
+## we now have final discounted values for each package for this plot, now select the package with the lowest CPU
+
+## QUESTION: do we want to allow grow only as optimal
+
+optimal <- all_discounted %>% 
+  mutate(cpu = cum_discount_cost/cum_discount_carb) %>% 
+  filter(cpu > 0) %>% 
+  group_by(biosum_cond_id) %>% 
+  filter(cpu == min(cpu)) 
 
 
 
