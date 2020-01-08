@@ -385,9 +385,6 @@ plot_all$complete_cpa <- if_else(plot_all$complete_cpa > 0 & plot_all$section ==
 
 ### create functions
 
-## !!!!NOTE!!!! (1/7/20)
-#~ keep acres in final output
-
 ## discount
 add_discounting = function(df){
   pre_post <- df %>% 
@@ -435,7 +432,7 @@ add_discounting = function(df){
   ## the information we want to end up with for each distinct plot and package
   final_cumulative <- plot_time_discounts %>% 
     filter(time == 31) %>% 
-    select(biosum_cond_id, rxpackage, cum_discount_carb, cum_discount_cost)
+    select(biosum_cond_id, acres, rxpackage, cum_discount_carb, cum_discount_cost)
   
   return(final_cumulative)
 }
@@ -506,7 +503,9 @@ discount_all <- function(df) {
 ## this will take ~20 minutes
 all_discounted <- discount_all(plot_all)
 
-
+##########################
+### subtract baseline ####
+##########################
 
 ### next steps:
 #~ incorperate baseline
@@ -514,8 +513,42 @@ all_discounted <- discount_all(plot_all)
 #     baseline for selected plots == (acres_assign)*carbon[for base package] + (acres-acres_assign)*carbon[for baseline]
 
 
-#### note to self:
-#~ make sure that we keep units as /acre untill very end
+### first, wrangle data:
+## get grow only for each plot
+grown_only <- all_discounted %>% 
+  filter(rxpackage == "031")
+  
+
+## get relevent data from selected_sites
+selected_data <- selected_sites %>% 
+  select(biosum_cond_id, acres, rxpackage, random_harvest_assign)
+
+## get discounted carbon values for each of these selected sites
+selected_disc <- merge(selected_data, all_discounted) %>% 
+  rename("rxpackage_sel" = "rxpackage") %>% # rename columns to distinguish them before joining
+  rename("discount_carb_sel" = "cum_discount_carb") %>% 
+  rename("cost_baseline_rx" = "cum_discount_cost")
+
+
+all_base <- left_join(grown_only, selected_disc, by = c("biosum_cond_id","acres"))
+
+
+## calculate baseline
+#~ first calculate the % of plot that is grow only vs radmonly selected acres
+#~ then multiply this by the calculated discounted carbon value for each package
+
+baseline_total <- all_base %>% 
+  mutate(random_harvest_assign = replace_na(random_harvest_assign, 0),
+         discount_carb_sel = replace_na(discount_carb_sel,0),
+         pct_grow_only = ((acres-random_harvest_assign)/acres),
+         pct_select = (random_harvest_assign/acres),
+         base_disc_carb = pct_grow_only*cum_discount_carb+pct_select*discount_carb_sel)
+         
+## joing togeter and calculate relative carbon
+incorp_base <- left_join(all_discounted, baseline_total[,c("biosum_cond_id","base_disc_carb")])
+
+relative_carb <- incorp_base %>% 
+  mutate(relative_carb = cum_discount_carb-base_disc_carb)
 
 
 
@@ -524,14 +557,14 @@ all_discounted <- discount_all(plot_all)
 
 ## QUESTION: do we want to allow grow only as optimal
 
-optimal <- all_discounted %>% 
-  mutate(cpu = cum_discount_cost/cum_discount_carb) %>% 
+optimal <- relative_carb %>% 
+  mutate(total_carbon = relative_carb* acres,
+         total_cost = cum_discount_cost* acres,
+         cpu = total_cost/total_carbon) %>% 
   filter(cpu > 0) %>% 
   group_by(biosum_cond_id) %>% 
-  filter(cpu == min(cpu)) 
-
-
-
+  filter(cpu == min(cpu)) %>% 
+  ungroup()
 
 
 
