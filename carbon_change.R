@@ -14,23 +14,22 @@ options(scipen = 999)
 ## read in data ##
 ##################
 
-conn <- odbcConnectAccess2007("scenario_results_allrx.mdb")
-cost <- sqlFetch(conn, "harvest_costs", as.is = T)
+#get harvest cost/ relevant acres
+conn <- odbcConnectAccess2007("optimizer_results_cycle_1_MaxMerch_Carbon_Stored_2019-12-02_09-43-16.accdb")
+acres <- sqlFetch(conn, "stand_costs_revenue_volume_sum_by_rxpackage", as.is = T)
+cost <- sqlFetch(conn, "product_yields_net_rev_costs_summary_by_rxpackage", as.is = T)
 odbcCloseAll()
 
-conn <- odbcConnectAccess2007("optimizer_results.accdb")
-acres <- sqlFetch(conn, "all_cycles_best_rx_summary", as.is = T)
-odbcCloseAll()
 
 
-
+#carbon data
 conn <- odbcConnectAccess2007("PREPOST_FVS_CARBON.ACCDB")
 pre_carb <- sqlFetch(conn, "PRE_FVS_CARBON", as.is = T)
 post_carb <- sqlFetch(conn, "POST_FVS_CARBON", as.is = T)
 odbcCloseAll()
 
 
-
+# harvested carbon data
 conn <- odbcConnectAccess2007("PREPOST_FVS_HRV_CARBON.ACCDB")
 pre_carb_hrv <- sqlFetch(conn, "PRE_FVS_HRV_CARBON", as.is = T)
 post_carb_hrv <- sqlFetch(conn, "POST_FVS_HRV_CARBON", as.is = T)
@@ -44,7 +43,9 @@ odbcCloseAll()
 ####################
 
 ## optimized packages + harvest cost per acre
-cost_sel <- cost %>% select(biosum_cond_id, rxpackage, complete_cpa)
+cost_sel <- cost %>% 
+  mutate(complete_cpa = harvest_onsite_cpa + haul_chip_cpa + haul_merch_cpa) %>% 
+  select(biosum_cond_id, rxpackage, complete_cpa)
 # by only selective harvest_cpa we are explicity ignoring transportation
 
 ## stand carbon
@@ -65,15 +66,17 @@ post_hrv_sel <- post_carb_hrv %>%
 
 
 ## join carbon tables
-pre_carbon_tot <- left_join(pre_carb_sel, pre_hrv_sel)  %>% 
-  distinct()
-post_carbon_tot <- left_join(post_carb_sel, post_hrv_sel)  %>% 
-  distinct()
+pre_carbon_tot <- left_join(pre_carb_sel, pre_hrv_sel)
+post_carbon_tot <- left_join(post_carb_sel, post_hrv_sel)
 
 ## sum stand and harvest carbon to get total
 pre_carbon_tot$tot_all <- pre_carbon_tot$Total_Stand_Carbon 
 post_carbon_tot$tot_all <- post_carbon_tot$Total_Stand_Carbon
 
+
+# join in acreage
+pre_carbon_tot <- left_join(acres[,c("biosum_cond_id", "acres")], pre_carbon_tot)
+post_carbon_tot <- left_join(acres[,c("biosum_cond_id", "acres")], post_carbon_tot)
 
 ### join to econ
 pre_full <- left_join(cost_sel, pre_carbon_tot)  %>% 
@@ -231,6 +234,7 @@ ggplot(cumm, aes(x = mega_tons_c, y = cpu)) +
  # geom_point() +
   geom_line(size = 2) +
   scale_x_continuous(expand = c(0,0), limits = c(0,1000)) +
+  scale_y_continuous(expand = c(0,0), limits = c(0,200)) +
   labs(
     x = "Megatons C Stored",
     y = "$/ton C") +
@@ -287,11 +291,24 @@ ggplot(top_5_packages_all, aes(x = mega_tons_c, y = cpu)) +
   geom_line(aes(color = rxpackage)) +
   geom_line(data = cumm, aes(x = mega_tons_c, y = cpu), color = "black", size = 1.5) +
   scale_x_continuous(expand = c(0,0), limits = c(0,1000)) +
+  scale_y_continuous(expand = c(0,0), limits = c(0,200)) +
   labs(
     x = "Megatons C Stored",
     y = "$/ton C",
     color = "Prescription Package") +
   theme_bw()
+
+
+# boxplots of total change for each package
+ggplot(total_carbon_acre, aes(x = rxpackage, y = change_acre)) +
+  geom_boxplot()
+
+
+## look at the difference in potential based on ownership
+
+conn <- odbcConnectAccess2007("master.mdb")
+cond <- sqlFetch(conn, "cond", as.is = T)
+odbcCloseAll()
 
 # try with making it all into one dataframe
 
