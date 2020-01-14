@@ -76,7 +76,7 @@ cond_lat_lon <- left_join(cond_sel, plot_sel)
 ## optimized packages + harvest cost per acre
 cost_sel <- cost %>%
   mutate(complete_cpa = harvest_onsite_cpa + haul_chip_cpa + haul_merch_cpa) %>%
-  select(biosum_cond_id, rxpackage, rxcycle, complete_cpa, chip_yield_gt, merch_yield_cf) %>%
+  select(biosum_cond_id, rxpackage, rxcycle, complete_cpa, chip_yield_gt, merch_yield_cf, merch_yield_gt) %>%
   arrange(biosum_cond_id, rxpackage, rxcycle)
 
 
@@ -178,9 +178,9 @@ plot_bf <- mutate(plot_actual, merch_yield_mmbf = round(merch_yield_cf * 12 / 10
 #### select only "baseline packages" (clearcut for private, and !!!!!!002!!!!! for federal), and first cycle
 # is 002 the right package to use?
 plot_sel <- plot_bf %>% 
-  filter(rxpackage == "032" &  rxcycle == 1 & owngrpcd == 40 |
-           rxpackage == "002" &  rxcycle == 1 & owngrpcd == 10) %>% 
-  select(biosum_cond_id, acres, owngrpcd, rxpackage, NAME, mmbf_county, merch_yield_mmbf) %>% 
+  filter(rxpackage == "032" & owngrpcd == 40 |
+           rxpackage == "002" & owngrpcd == 10) %>% 
+  select(biosum_cond_id, ID, acres, owngrpcd, rxcycle, rxpackage, NAME, mmbf_county, merch_yield_mmbf) %>% 
   rename("county" = "NAME")
 ### get rid of pre and post
 plot_sel <- distinct(plot_sel)
@@ -231,83 +231,116 @@ plot_targets <- bind_rows(target_list)
 
 
 randomize_sites <- function(location, ownrcd){
+  final_results <- NULL
   ## track status when running lapply()
   print(location)
   
-  #filter data for sites that are in area and are harvested during rxcycle 1
-  data_filt <- plot_targets %>% 
-    filter(county == location & owngrpcd == ownrcd & merch_yield_mmbf > 0)
-  
-  #if no plots meet these conditions, stop function
-  if(nrow(data_filt) == 0){
-    results <- NULL
-  } else {
+  # loop through each cycle
+  for(i in 1:4){
     
-    #define target mmbf for this area (for use in error calculation)
-    target <- data_filt$target[1]
+    print(i)
+    #filter data for sites that are in area and are harvested during rxcycle 1
+    data_filt <- plot_targets %>% 
+      filter(county == location & owngrpcd == ownrcd & rxcycle == i & merch_yield_mmbf > 0)
     
-    # this is to help define the exponential decay function for selecting random numbers
-    ratio <- target/sum(data_filt$merch_yield_mmbf)
-    #### for some counties, too small a ratio (i.e expnential decay function) doesn't give large enough harvest restults, so set minimum ration to 50
-    if(ratio < 50){
-      ratio <- 50
-    }else{
+    #if no plots meet these conditions, stop function
+    if(nrow(data_filt) == 0){
+      results <- NULL
+    } else {
+      
+      #define target mmbf for this area (for use in error calculation)
+      target <- data_filt$target[1]
+      
+      # this is to help define the exponential decay function for selecting random numbers
+      ratio <- target/sum(data_filt$merch_yield_mmbf)
+      
+      #### for some counties, too small a ratio (i.e expnential decay function) doesn't give large enough harvest restults, so set minimum ratio to 50
+      if(ratio < 50){
+        ratio <- 50
+      } else {
         ratio <- ratio
       }
-    
-    ### randomly select sites until at selected sites are within some error of the target value
-    results <- NULL
-    i <- 1
-    while(is.null(results)) {
       
-      ## randomly assign the number of acres to be harvest
-      #~ first step: create vector (of same length as filtered data) filled with random numbers
-      
-      random_harvest_acres <- data.frame(random_harvest_assign = rexp(nrow(data_filt),1/ratio))
-      
-      ## bind this column to data and get total random harvest
-      total_acres <- bind_cols(data_filt, random_harvest_acres)
-      
-      
-      total_harvest <- total_acres %>% 
-        mutate(random_harvest_assign = if_else(random_harvest_assign > acres, acres, random_harvest_assign),
-               total_yield = random_harvest_assign*merch_yield_mmbf)
-      
-      
-      ## randomly arrange sites
-      rand_data <- total_harvest[sample(1:nrow(total_harvest)),]
-      
-      #calculate cummulative sum 
-      cum_sum <- rand_data %>% 
-        mutate(cum_sum = cumsum(total_yield))
-      
-      #### assign error value of 1%; if we've gone through >2,000 while loops, increase the error by 1%
-      ## this is to ensure that the loop will eventually finish if for some reason the numbers arn't working well
-      if(i < 2000){
-        error <- .01
-      } else if(i %% 2000 == 0) {
-        error <- .01 + (i/2000 * .01)
-      }
-      
-      ## select at least 2 sites that are within 20% of target
-      selected <- cum_sum %>% 
-        filter(cum_sum <= target * (1 + error) & cum_sum >= target * (1 - error)) ### filter for total harvest values w/in some error of the target
-      
-      ## if at least two sites were successfully selected, get list of sites, otherwise repeat loop
-      if(nrow(selected) >= 1){
-        results <- cum_sum %>% 
-          filter(cum_sum <= target * (1 + error))
-        results$error <- error
+      ### if a site was previously selected, use the same assigned harvested acres as the first time around
+      if(!is.null(final_results)) {
+        joined <- left_join(data_filt, final_results[,c("biosum_cond_id", "random_harvest_assign")], by = "biosum_cond_id")
       } else {
-        results <- NULL
+        joined <- data_filt 
       }
       
-      #count number of loops
-      i <- i+1
+      
+      
+      ### randomly select sites until at selected sites are within some error of the target value
+      results <- NULL
+      j <- 1
+      while(is.null(results)) {
+        
+        ## randomly assign the number of acres to be harvest
+        #~ first step: create vector (of same length as filtered data) filled with random numbers
+        
+        random_harvest_acres <- data.frame(random_harvest_assign = rexp(nrow(joined),1/ratio))
+        
+        ## bind this column to data and get total random harvest
+        acres_assigned <- bind_cols(joined, random_harvest_acres)
+        
+        ### if a site was previously selected, use the same assigned harvested acres as the first time around
+        if(any(is.na(acres_assigned$random_harvest_assign))) {
+          total_acres <- acres_assigned %>% 
+            mutate(random_harvest_assign = if_else(is.na(random_harvest_assign), random_harvest_assign1, random_harvest_assign))
+        } else {
+          total_acres <- acres_assigned
+        }
+        
+        
+        
+        total_harvest <- total_acres %>% 
+          mutate(random_harvest_assign = if_else(random_harvest_assign > acres, acres, random_harvest_assign), 
+                 total_yield = random_harvest_assign*merch_yield_mmbf)
+        
+        
+        ## randomly arrange sites
+        rand_data <- total_harvest[sample(1:nrow(total_harvest)),]
+        
+        
+        
+        #calculate cummulative sum 
+        cum_sum <- rand_data %>% 
+          mutate(cum_sum = cumsum(total_yield))
+        
+        #### assign error value of 1%; if we've gone through >2,000 while loops, increase the error by 1%
+        ## this is to ensure that the loop will eventually finish if for some reason the numbers arn't working well
+        if(j < 2000){
+          error <- .01
+        } else if(j %% 2000 == 0) {
+          error <- .01 + (j/2000 * .01)
+        }
+        
+        ## select at least 2 sites that are within 20% of target
+        selected <- cum_sum %>% 
+          filter(cum_sum <= target * (1 + error) & cum_sum >= target * (1 - error)) ### filter for total harvest values w/in some error of the target
+        
+        ## if at least two sites were successfully selected, get list of sites, otherwise repeat loop
+        if(nrow(selected) >= 1){
+          results <- cum_sum %>% 
+            filter(cum_sum <= target * (1 + error))
+          results$error <- error
+        } else {
+          results <- NULL
+        }
+        
+        #count number of loops
+        j <- j+1
+      }
     }
-  } 
+    final_results <- bind_rows(final_results, results)
+    if(nrow(final_results) == 0){
+      final_results <- NULL
+    }
+    
+  }
   
-  return(results)
+  return(final_results)
+  
 }
 
 
@@ -319,9 +352,9 @@ random_public <- bind_rows(random_site_public)
 random_private <- bind_rows(random_site_private)
 
 ## check rough accuracy towards targets:
-paste("total harvest accuracy:",(sum(random_private$total_yield) + sum(random_public$total_yield))/1425)
-paste("private harvest accuracy:", sum(random_private$total_yield)/1197)
-paste("public harvest accuracy:",sum(random_public$total_yield)/203)
+paste("total harvest accuracy:",(sum(random_private$total_yield) + sum(random_public$total_yield))/1425/4)
+paste("private harvest accuracy:", sum(random_private$total_yield)/1197/4)
+paste("public harvest accuracy:",sum(random_public$total_yield)/203/4)
 
 selected_sites <- bind_rows(random_private, random_public)
 
@@ -432,7 +465,7 @@ add_discounting = function(df){
   ## the information we want to end up with for each distinct plot and package
   final_cumulative <- plot_time_discounts %>% 
     filter(time == 31) %>% 
-    select(biosum_cond_id, acres, rxpackage, cum_discount_carb, cum_discount_cost)
+    select(biosum_cond_id, ID, acres, rxpackage, cum_discount_carb, cum_discount_cost)
   
   return(final_cumulative)
 }
@@ -555,8 +588,6 @@ relative_carb <- incorp_base %>%
 ### final step:
 ## we now have final discounted values for each package for this plot, now select the package with the lowest CPU
 
-## QUESTION: do we want to allow grow only as optimal
-
 optimal <- relative_carb %>% 
   mutate(total_carbon = relative_carb* acres,
          total_cost = cum_discount_cost* acres,
@@ -565,13 +596,6 @@ optimal <- relative_carb %>%
   group_by(biosum_cond_id) %>% 
   filter(cpu == min(cpu)) %>% 
   ungroup()
-
-
-
-
-
-
-
 
 
 
