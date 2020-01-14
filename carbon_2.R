@@ -345,19 +345,20 @@ randomize_sites <- function(location, ownrcd){
 
 
 
-random_site_public <- lapply(unique_counties, randomize_sites, ownrcd = 10)
-random_site_private <- lapply(unique_counties, randomize_sites, ownrcd = 40)
+# random_site_public <- lapply(unique_counties, randomize_sites, ownrcd = 10)
+# random_site_private <- lapply(unique_counties, randomize_sites, ownrcd = 40)
+# 
+# random_public <- bind_rows(random_site_public)
+# random_private <- bind_rows(random_site_private)
+# 
+# ## check rough accuracy towards targets:
+# paste("total harvest accuracy:",(sum(random_private$total_yield) + sum(random_public$total_yield))/1425/4)
+# paste("private harvest accuracy:", sum(random_private$total_yield)/1197/4)
+# paste("public harvest accuracy:",sum(random_public$total_yield)/203/4)
+# 
+# selected_sites <- bind_rows(random_private, random_public)
 
-random_public <- bind_rows(random_site_public)
-random_private <- bind_rows(random_site_private)
-
-## check rough accuracy towards targets:
-paste("total harvest accuracy:",(sum(random_private$total_yield) + sum(random_public$total_yield))/1425/4)
-paste("private harvest accuracy:", sum(random_private$total_yield)/1197/4)
-paste("public harvest accuracy:",sum(random_public$total_yield)/203/4)
-
-selected_sites <- bind_rows(random_private, random_public)
-
+write_csv(selected_sites, "baseline_sites.csv")
 
 
 ######################################
@@ -554,7 +555,7 @@ grown_only <- all_discounted %>%
 
 ## get relevent data from selected_sites
 selected_data <- selected_sites %>% 
-  select(biosum_cond_id, acres, rxpackage, random_harvest_assign)
+  select(biosum_cond_id, ID, acres, rxpackage, random_harvest_assign)
 
 ## get discounted carbon values for each of these selected sites
 selected_disc <- merge(selected_data, all_discounted) %>% 
