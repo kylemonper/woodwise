@@ -416,8 +416,6 @@ merch_decay <- read_csv("softwood_lumber_decay.csv")
 
 ## product decay
 add_harvest_decay <- function(df) {
-  tmp <- df %>% 
-    select(time, section, rxcycle, Total_Stand_Carbon, diff, each_year, merch_carbon)
   
   ### if a harvest occured, start a time count of 1, if not == NA
   merch_time <- tmp %>% 
@@ -489,7 +487,7 @@ add_discounting = function(df){
     # what happens each year
     mutate(each_year = diff/10) %>% 
     # convert green tons to C
-    mutate(merch_carbon = merch_yield_gt * .5)
+    mutate(merch_carbon = merch_yield_gt * .325)
   
   
   
@@ -605,15 +603,11 @@ discount_all <- function(df) {
   
 }
 
-subset <- unique(plot_all$biosum_cond_id)[1:3]
-tmp <- plot_all %>% 
-  filter(biosum_cond_id %in% subset)
 
-test <- discount_all(tmp)
 ### discount all packages
-## this will take ~20 minutes
-#all_discounted <- discount_all(plot_all)
-#write_csv(all_discounted, "all_discounted.csv")
+## this will take ~30 minutes
+all_discounted <- discount_all(plot_all)
+write_csv(all_discounted, "all_discounted.csv")
 all_discounted <- read_csv("all_discounted.csv")
 ##########################
 ### subtract baseline ####
@@ -639,11 +633,19 @@ selected_data <- selected_sites %>%
 selected_disc <- merge(selected_data, all_discounted) %>% 
   rename("rxpackage_sel" = "rxpackage") %>% # rename columns to distinguish them before joining
   rename("discount_carb_sel" = "cum_discount_carb") %>% 
-  rename("cost_baseline_rx" = "cum_discount_cost")
+  rename("cost_baseline_rx" = "cum_discount_cost") %>% 
+  rename("discount_merch_sel" = "cum_discount_merch") %>% 
+  rename("total_carb_sel" = "total_discount_carb") %>% 
+  distinct()
 
 
 all_base <- left_join(grown_only, selected_disc, by = c("biosum_cond_id","acres", "ID")) %>% 
   distinct()
+
+
+###     !!!!!!!!!!!!!!  #######
+####      FIX THIS        ######
+###     !!!!!!!!!!!!!!  #######
 
 
 ## calculate baseline
@@ -652,16 +654,19 @@ all_base <- left_join(grown_only, selected_disc, by = c("biosum_cond_id","acres"
 
 baseline_total <- all_base %>% 
   mutate(random_harvest_assign = replace_na(random_harvest_assign, 0),
-         discount_carb_sel = replace_na(discount_carb_sel,0),
+         total_carb_sel = replace_na(total_carb_sel,0),
+         cost_baseline_rx = replace_na(cost_baseline_rx,0),
          pct_grow_only = ((acres-random_harvest_assign)/acres),
          pct_select = (random_harvest_assign/acres),
-         base_disc_carb = pct_grow_only*cum_discount_carb+pct_select*discount_carb_sel)
+         base_disc_carb = (pct_grow_only*total_carb_sel)+(pct_select*total_carb_sel), #######FIX THIS######
+         base_disc_cost = (pct_select*cost_baseline_rx))
          
 ## joing togeter and calculate relative carbon
-incorp_base <- left_join(all_discounted, baseline_total[,c("biosum_cond_id","base_disc_carb", "ID")])
+incorp_base <- left_join(all_discounted, baseline_total[,c("biosum_cond_id","base_disc_carb","base_disc_cost", "ID")])
 
 relative_carb <- incorp_base %>% 
-  mutate(relative_carb = cum_discount_carb-base_disc_carb)
+  mutate(relative_carb = cum_discount_carb-base_disc_carb,
+         relative_cost = cum_discount_cost-base_disc_cost)
 
 
 
@@ -670,9 +675,9 @@ relative_carb <- incorp_base %>%
 
 optimal <- relative_carb %>% 
   mutate(total_carbon = relative_carb* acres,
-         total_cost = cum_discount_cost* acres,
+         total_cost = relative_cost* acres,
          cpu = total_cost/total_carbon) %>% 
-  filter(cpu > 0) %>% 
+  filter(cpu > 0 & total_carbon > 0) %>% 
   group_by(biosum_cond_id) %>% 
   filter(cpu == min(cpu)) %>% 
   ungroup()
@@ -690,7 +695,8 @@ opt_tie_break <- optimal %>%
 ## get cumsum
 cumsum <- optimal %>% 
   arrange(cpu) %>% 
-  mutate(cumsum = cumsum(cpu))
+  mutate(cumsum = cumsum(total_carbon)) %>% 
+  filter(cpu < 200)
 
 ggplot(cumsum, aes(cumsum, cpu)) +
   geom_point()
@@ -700,7 +706,6 @@ package_count <- optimal %>%
   group_by(rxpackage) %>% 
   tally()
 
-x$name <- factor(x$name, levels = x$name[order(x$val)])
 package_count$rxpackage <- factor(package_count$rxpackage, levels = package_count$rxpackage[order(-package_count$n)])
 
 ggplot(package_count, aes(as.factor(rxpackage), n)) +
