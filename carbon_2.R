@@ -67,8 +67,6 @@ cond_sel <- cond_m %>%
 cond_lat_lon <- left_join(cond_sel, plot_sel)
 
 
-
-
 ##############################
 #### select columns/join ####
 ############################
@@ -125,13 +123,7 @@ plots_loc <- left_join(new_id, cond_lat_lon)
 
 
 # write_csv(plots_loc, "plot_loc.csv")
-
-# ##### write to csv
-# write_csv(pre_full, "pre_harv_full.csv")
-# write_csv(post_full, "post_harv_full.csv")
-
-# pre_full <- read_csv("pre_harv_full.csv")
-# post_full <- read_csv("post_harv_full.csv")
+test <- read_csv("plot_loc.csv")
 
 
 # name pre and post for future reference
@@ -147,6 +139,8 @@ all_data <- left_join(all_data, new_id)
 ## clean environment of everything except the new full dataset
 rm(list = setdiff(ls(),"all_data"))
 
+# write_csv(all_data, "all_data.csv")
+# all_data <- read_csv("all_data.csv)
 
 ###############################
 #### Select Baseline plots ####
@@ -162,7 +156,7 @@ rm(list = setdiff(ls(),"all_data"))
 
 
 counties <- read_csv("plot_county.csv") %>% 
-  select(ID, NAME)
+  select(ID, lat, lon, NAME)
 harvest_2012 <- read_csv("CA_harvest_2012.csv")
 
 ### joing with plot_all (from carbon_2.R after running through line 144)
@@ -358,8 +352,8 @@ randomize_sites <- function(location, ownrcd){
 # 
 # selected_sites <- bind_rows(random_private, random_public)
 
-write_csv(selected_sites, "baseline_sites.csv")
-
+# write_csv(selected_sites, "baseline_sites.csv")
+selected_sites <- read_csv("baseline_sites.csv")
 
 ######################################
 ######## Carbon Discounting ##########
@@ -416,8 +410,74 @@ plot_all$complete_cpa <- if_else(plot_all$complete_cpa > 0 & plot_all$section ==
 ############################################
 #####  add discounting and optimize  #######
 ############################################
+merch_decay <- read_csv("softwood_lumber_decay.csv")
 
-### create functions
+### create functions ####
+
+## product decay
+add_harvest_decay <- function(df) {
+  tmp <- df %>% 
+    select(time, section, rxcycle, Total_Stand_Carbon, diff, each_year, merch_carbon)
+  
+  ### if a harvest occured, start a time count of 1, if not == NA
+  merch_time <- tmp %>% 
+    mutate(cycle1_merch = if_else(merch_carbon > 0 & rxcycle == 1 & section == "post", 1, NA_real_),
+           cycle2_merch = if_else(merch_carbon > 0 & rxcycle == 2 & section == "post", 1, NA_real_),
+           cycle3_merch = if_else(merch_carbon > 0 & rxcycle == 3 & section == "post", 1, NA_real_),
+           cycle4_merch = if_else(merch_carbon > 0 & rxcycle == 4 & section == "post", 1, NA_real_))
+  
+  ## next step: how to add +1 to each row to have "time since harvest"
+  cum.na <- function(x){
+    # set NA's to 0
+    x[which(is.na(x))] <- 0
+    # set cumulative sum twice to increase each element n+1 
+    x <- cumsum(cumsum(x))
+    # reset the 0 values to NA again
+    x[which(x < 1)] <- NA_real_
+    return(x)
+  }
+  
+  
+  merch <- merch_time %>% 
+    mutate(cycle1_time = cum.na(cycle1_merch),
+           cycle2_time = cum.na(cycle2_merch),
+           cycle3_time = cum.na(cycle3_merch),
+           cycle4_time = cum.na(cycle4_merch))
+  
+  
+  ### add in decay for each cycle
+  merch <- left_join(merch, merch_decay, by = c("cycle1_time" = "year")) %>% 
+    rename("cycle1_rate" = "decay")
+  merch <- left_join(merch, merch_decay, by = c("cycle2_time" = "year")) %>% 
+    rename("cycle2_rate" = "decay")
+  merch <- left_join(merch, merch_decay, by = c("cycle3_time" = "year")) %>% 
+    rename("cycle3_rate" = "decay")
+  merch <- left_join(merch, merch_decay, by = c("cycle4_time" = "year")) %>% 
+    rename("cycle4_rate" = "decay")
+  
+  ## calculate decay based on decay rate * harvested for each cycle
+  decay <- function(time, rate) {
+    
+    harvested <- merch$merch_carbon[which(merch[,time] == 1)]
+    decay <- harvested * merch[,rate]
+    if(nrow(decay) == 0) {
+      decay <- as.vector(rep(NA_real_, nrow(merch)))
+    }
+    return(as_vector(decay))
+  }
+  
+  
+  merch_loss <- merch %>% 
+    mutate(decay1 = decay("cycle1_time", "cycle1_rate"),
+           decay2 = decay("cycle2_time", "cycle2_rate"),
+           decay3 = decay("cycle3_time", "cycle3_rate"),
+           decay4 = decay("cycle4_time", "cycle4_rate"))
+  
+  
+  summed <- rowSums(merch_loss[,c("decay1","decay2","decay3","decay4")], na.rm = T)
+  
+  return(summed)
+}
 
 ## discount
 add_discounting = function(df){
@@ -427,7 +487,9 @@ add_discounting = function(df){
     # find the difference between the the stand carbon in cycle 1 and 2, 2 and 3 etc
     mutate(diff = Total_Stand_Carbon - lag(Total_Stand_Carbon, default = first(Total_Stand_Carbon))) %>%
     # what happens each year
-    mutate(each_year = diff/10)
+    mutate(each_year = diff/10) %>% 
+    # convert green tons to C
+    mutate(merch_carbon = merch_yield_gt * .5)
   
   
   
@@ -450,14 +512,25 @@ add_discounting = function(df){
                                  plot_time$each_year)
   }
   
+  ## add in decay of merchantable wood
+  plot_time$merch_decay <- add_harvest_decay(plot_time)
+  
+  ## get yearly difference for merch
+  plot_merch_diff <- plot_time %>% 
+    mutate(merch_diff = merch_decay - lag(merch_decay),
+           merch_diff = replace_na(merch_diff, 0))
+  
+  
   ## add a discounted column that is discounted by 0.05 
   # that is the cumulative sum for each year of discounted carbon
   
-  plot_time_discounts <- plot_time %>% 
+  plot_time_discounts <- plot_merch_diff %>% 
     # discounted carbon for each year
     # mutate(discount_carb = each_year/((1+0.05)^time)) %>% 
     # cumulative discounted carbon
     mutate(cum_discount_carb = cumsum(each_year/((1+0.05)^time))) %>% 
+    mutate(cum_discount_merch = cumsum(merch_diff/((1+0.05)^time))) %>% 
+    mutate(total_discount_carb = cum_discount_carb + cum_discount_merch) %>% 
     # discounted cost
     mutate(discount_cost = complete_cpa/((1+0.05)^time)) %>% 
     mutate(discount_cost = replace_na(discount_cost,0)) %>% 
@@ -466,7 +539,7 @@ add_discounting = function(df){
   ## the information we want to end up with for each distinct plot and package
   final_cumulative <- plot_time_discounts %>% 
     filter(time == 31) %>% 
-    select(biosum_cond_id, ID, acres, rxpackage, cum_discount_carb, cum_discount_cost)
+    select(biosum_cond_id, ID, acres, rxpackage, cum_discount_carb, cum_discount_merch, cum_discount_cost, total_discount_carb)
   
   return(final_cumulative)
 }
@@ -532,11 +605,16 @@ discount_all <- function(df) {
   
 }
 
+subset <- unique(plot_all$biosum_cond_id)[1:3]
+tmp <- plot_all %>% 
+  filter(biosum_cond_id %in% subset)
 
+test <- discount_all(tmp)
 ### discount all packages
 ## this will take ~20 minutes
-all_discounted <- discount_all(plot_all)
-
+#all_discounted <- discount_all(plot_all)
+#write_csv(all_discounted, "all_discounted.csv")
+all_discounted <- read_csv("all_discounted.csv")
 ##########################
 ### subtract baseline ####
 ##########################
@@ -564,7 +642,8 @@ selected_disc <- merge(selected_data, all_discounted) %>%
   rename("cost_baseline_rx" = "cum_discount_cost")
 
 
-all_base <- left_join(grown_only, selected_disc, by = c("biosum_cond_id","acres"))
+all_base <- left_join(grown_only, selected_disc, by = c("biosum_cond_id","acres", "ID")) %>% 
+  distinct()
 
 
 ## calculate baseline
@@ -579,7 +658,7 @@ baseline_total <- all_base %>%
          base_disc_carb = pct_grow_only*cum_discount_carb+pct_select*discount_carb_sel)
          
 ## joing togeter and calculate relative carbon
-incorp_base <- left_join(all_discounted, baseline_total[,c("biosum_cond_id","base_disc_carb")])
+incorp_base <- left_join(all_discounted, baseline_total[,c("biosum_cond_id","base_disc_carb", "ID")])
 
 relative_carb <- incorp_base %>% 
   mutate(relative_carb = cum_discount_carb-base_disc_carb)
@@ -597,6 +676,50 @@ optimal <- relative_carb %>%
   group_by(biosum_cond_id) %>% 
   filter(cpu == min(cpu)) %>% 
   ungroup()
+
+opt_tie_break <- optimal %>% 
+  group_by(ID) %>% 
+  sample_n(1)
+
+
+###################################
+############ RESULTS ##############
+###################################
+
+###### MCC #######
+## get cumsum
+cumsum <- optimal %>% 
+  arrange(cpu) %>% 
+  mutate(cumsum = cumsum(cpu))
+
+ggplot(cumsum, aes(cumsum, cpu)) +
+  geom_point()
+
+##### Package counts ####
+package_count <- optimal %>% 
+  group_by(rxpackage) %>% 
+  tally()
+
+x$name <- factor(x$name, levels = x$name[order(x$val)])
+package_count$rxpackage <- factor(package_count$rxpackage, levels = package_count$rxpackage[order(-package_count$n)])
+
+ggplot(package_count, aes(as.factor(rxpackage), n)) +
+  geom_col() +
+  labs(
+    title = "counts of optimal packages",
+    x = "treatment package", 
+    y = "count"
+  ) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+
+##### get plot locations for mapping #####
+
+cpu_locs <- left_join(opt_tie_break, counties)
+# write_csv(cpu_locs, "cpu_locs.csv")
+
 
 
 
