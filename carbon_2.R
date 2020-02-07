@@ -71,10 +71,10 @@ cond_lat_lon <- left_join(cond_sel, plot_sel)
 #### select columns/join ####
 ############################
 
-## optimized packages + harvest cost per acre
+## harvest cost per acre
 cost_sel <- cost %>%
   mutate(complete_cpa = harvest_onsite_cpa + haul_chip_cpa + haul_merch_cpa) %>%
-  select(biosum_cond_id, rxpackage, rxcycle, complete_cpa, chip_yield_gt, merch_yield_cf, merch_yield_gt) %>%
+  select(biosum_cond_id, rxpackage, rxcycle, complete_cpa, haul_chip_cpa, haul_merch_cpa, harvest_onsite_cpa, chip_yield_gt, merch_yield_cf, merch_yield_gt) %>%
   arrange(biosum_cond_id, rxpackage, rxcycle)
 
 
@@ -354,6 +354,7 @@ randomize_sites <- function(location, ownrcd){
 
 # write_csv(selected_sites, "baseline_sites.csv")
 selected_sites <- read_csv("baseline_sites.csv")
+selected_sites$biosum_cond_id <- as.numeric(selected_sites$biosum_cond_id)
 
 ######################################
 ######## Carbon Discounting ##########
@@ -398,6 +399,11 @@ plot_all$chip_yield_gt <- if_else(is.na(plot_all$complete_cpa), 0, plot_all$chip
 # remove duplicate caused by the pre/post
 plot_all$chip_yield_gt <- if_else(plot_all$chip_yield_gt > 0 & plot_all$section == "pre" ,0, plot_all$chip_yield_gt)
 
+### repeat for merch_yield
+plot_all$merch_yield_gt <- if_else(is.na(plot_all$complete_cpa), 0, plot_all$merch_yield_gt)
+# remove duplicate caused by the pre/post
+plot_all$merch_yield_gt <- if_else(plot_all$merch_yield_gt > 0 & plot_all$section == "pre" ,0, plot_all$merch_yield_gt)
+
 
 ## clean cpa
 # if cpa is NA, harvesting did not occur, therfor cost == 0
@@ -405,12 +411,28 @@ plot_all$complete_cpa <- if_else(is.na(plot_all$complete_cpa), 0 , plot_all$comp
 # remove duplicate caused by the pre/post
 plot_all$complete_cpa <- if_else(plot_all$complete_cpa > 0 & plot_all$section == "pre", 0 , plot_all$complete_cpa)
 
+plot_all$haul_chip_cpa <- if_else(is.na(plot_all$complete_cpa), 0 , plot_all$haul_chip_cpa)
+# remove duplicate caused by the pre/post
+plot_all$haul_chip_cpa <- if_else(plot_all$haul_chip_cpa > 0 & plot_all$section == "pre", 0 , plot_all$haul_chip_cpa)
+
+plot_all$haul_merch_cpa <- if_else(is.na(plot_all$complete_cpa), 0 , plot_all$haul_merch_cpa)
+# remove duplicate caused by the pre/post
+plot_all$haul_merch_cpa <- if_else(plot_all$haul_merch_cpa > 0 & plot_all$section == "pre", 0 , plot_all$haul_merch_cpa)
+
+plot_all$harvest_onsite_cpa <- if_else(is.na(plot_all$complete_cpa), 0 , plot_all$harvest_onsite_cpa)
+# remove duplicate caused by the pre/post
+plot_all$harvest_onsite_cpa <- if_else(plot_all$harvest_onsite_cpa > 0 & plot_all$section == "pre", 0 , plot_all$harvest_onsite_cpa)
+
 
 
 ############################################
 #####  add discounting and optimize  #######
 ############################################
+
+#### decay rates for merch and non-merch
 merch_decay <- read_csv("softwood_lumber_decay.csv")
+non_merch <- read_delim("chip_pathways.txt", delim = ",")
+
 
 ### create functions ####
 
@@ -418,7 +440,7 @@ merch_decay <- read_csv("softwood_lumber_decay.csv")
 add_harvest_decay <- function(df) {
   
   ### if a harvest occured, start a time count of 1, if not == NA
-  merch_time <- tmp %>% 
+  merch_time <- df %>% 
     mutate(cycle1_merch = if_else(merch_carbon > 0 & rxcycle == 1 & section == "post", 1, NA_real_),
            cycle2_merch = if_else(merch_carbon > 0 & rxcycle == 2 & section == "post", 1, NA_real_),
            cycle3_merch = if_else(merch_carbon > 0 & rxcycle == 3 & section == "post", 1, NA_real_),
@@ -475,6 +497,80 @@ add_harvest_decay <- function(df) {
   summed <- rowSums(merch_loss[,c("decay1","decay2","decay3","decay4")], na.rm = T)
   
   return(summed)
+  
+}
+
+#### wood chip pathways + decay
+add_chip_decay <- function(df, pathway, decay_pct){
+  
+  # fraction that goes to this pathway
+  fraction <- df %>% 
+    mutate(chip_carbon = chip_carbon * decay_pct)
+  
+  ### if a harvest occured, start a time count of 1, if not == NA
+  chip_time <- fraction %>% 
+    mutate(cycle1_chip = if_else(chip_carbon > 0 & rxcycle == 1 & section == "post", 1, NA_real_),
+           cycle2_chip = if_else(chip_carbon > 0 & rxcycle == 2 & section == "post", 1, NA_real_),
+           cycle3_chip = if_else(chip_carbon > 0 & rxcycle == 3 & section == "post", 1, NA_real_),
+           cycle4_chip = if_else(chip_carbon > 0 & rxcycle == 4 & section == "post", 1, NA_real_))
+  
+  ## next step: how to add +1 to each row to have "time since harvest"
+  cum.na <- function(x){
+    # set NA's to 0
+    x[which(is.na(x))] <- 0
+    # set cumulative sum twice to increase each element n+1 
+    x <- cumsum(cumsum(x))
+    # reset the 0 values to NA again
+    x[which(x < 1)] <- NA_real_
+    return(x)
+  }
+  
+  
+  chip <- chip_time %>% 
+    mutate(cycle1_time = cum.na(cycle1_chip),
+           cycle2_time = cum.na(cycle2_chip),
+           cycle3_time = cum.na(cycle3_chip),
+           cycle4_time = cum.na(cycle4_chip))
+  
+  ## before joining in decay rate, select the path we want to include
+  chip_decay <- non_merch %>% 
+    filter(path == pathway) %>% 
+    mutate(Year = Year + 1) %>% ### start at year 1 not 0
+    select(Year, embodied)
+  
+  
+  ### add in decay for each cycle
+  chip <- left_join(chip, chip_decay, by = c("cycle1_time" = "Year")) %>% 
+    rename("cycle1_rate" = "embodied")
+  chip <- left_join(chip, chip_decay, by = c("cycle2_time" = "Year")) %>% 
+    rename("cycle2_rate" = "embodied")
+  chip <- left_join(chip, chip_decay, by = c("cycle3_time" = "Year")) %>% 
+    rename("cycle3_rate" = "embodied")
+  chip <- left_join(chip, chip_decay, by = c("cycle4_time" = "Year")) %>% 
+    rename("cycle4_rate" = "embodied")
+  
+  ## calculate decay based on decay rate * harvested for each cycle
+  decay <- function(time, rate) {
+    
+    harvested <- chip$chip_carbon[which(chip[,time] == 1)]
+    decay <- harvested * chip[,rate]
+    if(nrow(decay) == 0) {
+      decay <- as.vector(rep(NA_real_, nrow(chip)))
+    }
+    return(as_vector(decay))
+  }
+  
+  
+  chip_loss <- chip %>% 
+    mutate(decay1 = decay("cycle1_time", "cycle1_rate"),
+           decay2 = decay("cycle2_time", "cycle2_rate"),
+           decay3 = decay("cycle3_time", "cycle3_rate"),
+           decay4 = decay("cycle4_time", "cycle4_rate"))
+  
+  
+  summed <- rowSums(chip_loss[,c("decay1","decay2","decay3","decay4")], na.rm = T)
+  
+  return(summed)
 }
 
 ## discount
@@ -487,7 +583,9 @@ add_discounting = function(df){
     # what happens each year
     mutate(each_year = diff/10) %>% 
     # convert green tons to C
-    mutate(merch_carbon = merch_yield_gt * .325)
+    mutate(merch_carbon = merch_yield_gt * .325) %>% 
+    mutate(chip_carbon = chip_yield_gt * .325)
+    
   
   
   
@@ -512,12 +610,24 @@ add_discounting = function(df){
   
   ## add in decay of merchantable wood
   plot_time$merch_decay <- add_harvest_decay(plot_time)
-  
+  ## add in decay of chip paths (decay/ biochar)
+  plot_time$decay <- add_chip_decay(plot_time, "decay", decay_pct)
+  plot_time$biochar <- add_chip_decay(plot_time, "biochar", char_pct)
+
+
   ## get yearly difference for merch
   plot_merch_diff <- plot_time %>% 
     mutate(merch_diff = merch_decay - lag(merch_decay),
-           merch_diff = replace_na(merch_diff, 0))
+           merch_diff = replace_na(merch_diff, 0)) %>% 
+    mutate(decay_diff = decay - lag(decay),
+           decay_diff = replace_na(decay_diff, 0)) %>% 
+    mutate(biochar_diff = biochar - lag(biochar),
+           biochar_diff = replace_na(biochar_diff, 0)) 
   
+  ### assume that chips are not actually transported to facilities
+  ##~ maybe want to add some cost for the theoretical "spreading" of chips
+  update_haul_cost <- plot_merch_diff %>% 
+    mutate(haul_chip_cpa = haul_chip_cpa * (1 - decay_pct))
   
   ## add a discounted column that is discounted by 0.05 
   # that is the cumulative sum for each year of discounted carbon
@@ -528,26 +638,27 @@ add_discounting = function(df){
     # cumulative discounted carbon
     mutate(cum_discount_carb = cumsum(each_year/((1+0.05)^time))) %>% 
     mutate(cum_discount_merch = cumsum(merch_diff/((1+0.05)^time))) %>% 
-    mutate(total_discount_carb = cum_discount_carb + cum_discount_merch) %>% 
+    mutate(cum_discount_decay = cumsum(decay_diff/((1+0.05)^time))) %>% 
+    mutate(cum_discount_biochar = cumsum(biochar_diff/((1+0.05)^time))) %>% 
+    mutate(total_discount_carb = cum_discount_carb + cum_discount_merch + cum_discount_biochar + cum_discount_decay) %>% 
     # discounted cost
-    mutate(discount_cost = complete_cpa/((1+0.05)^time)) %>% 
+    mutate(discount_haul_merch = haul_merch_cpa/((1+0.05)^time)) %>% 
+    mutate(discount_haul_chip = haul_chip_cpa/((1+0.05)^time)) %>% 
+    mutate(discount_cost = discount_haul_chip + discount_haul_merch) %>% 
     mutate(discount_cost = replace_na(discount_cost,0)) %>% 
     mutate(cum_discount_cost = cumsum(discount_cost)) 
   
   ## the information we want to end up with for each distinct plot and package
   final_cumulative <- plot_time_discounts %>% 
     filter(time == 31) %>% 
-    select(biosum_cond_id, ID, acres, rxpackage, cum_discount_carb, cum_discount_merch, cum_discount_cost, total_discount_carb)
+    select(biosum_cond_id, ID, acres, rxpackage, cum_discount_carb, cum_discount_merch, cum_discount_cost, total_discount_carb, cum_discount_decay, cum_discount_biochar)
   
   return(final_cumulative)
 }
 
 
 ## create function that applies the discount function  ^ to each plot+package 
-
-
 discount_all <- function(df) {
-  
   
   # pull out unique biosum ids 
   uniq_biosum_ids <- df %>% 
@@ -593,7 +704,7 @@ discount_all <- function(df) {
     
     ### progress tracker
     number_completed = number_completed + 1
-    if (number_completed %% 100 == 0 || number_completed == total_to_complete) {
+    if (number_completed %% 200 == 0 || number_completed == total_to_complete) {
       print(sprintf("Percentage completion: %.2f%%", (number_completed / length(uniq_biosum_ids)) * 100))
     }
     
@@ -603,12 +714,20 @@ discount_all <- function(df) {
   
 }
 
+decay_pct <- 1
+char_pct <- 0
+
+
 
 ### discount all packages
-## this will take ~30 minutes
-all_discounted <- discount_all(plot_all)
-write_csv(all_discounted, "all_discounted.csv")
-all_discounted <- read_csv("all_discounted.csv")
+## this will take ~90 minutes
+Sys.time()
+all_discounted_FullDecay <- discount_all(plot_all)
+Sys.time()
+write_csv(all_discounted_FullDecay, "all_discounted_FullDecay.csv")
+
+all_discounted_FullDecay <- read_csv("all_discounted_FullDecay.csv")
+all_discounted_FullDecay$biosum_cond_id <- as.numeric(all_discounted_FullDecay$biosum_cond_id)
 ##########################
 ### subtract baseline ####
 ##########################
@@ -621,8 +740,10 @@ all_discounted <- read_csv("all_discounted.csv")
 
 ### first, wrangle data:
 ## get grow only for each plot
-grown_only <- all_discounted %>% 
-  filter(rxpackage == "031")
+grow_only <- all_discounted_FullDecay %>% 
+  filter(rxpackage == "031") %>% 
+  select(biosum_cond_id, ID, acres, rxpackage, cum_discount_carb) %>% 
+  rename("grow_only_carb" = "cum_discount_carb")
   
 
 ## get relevent data from selected_sites
@@ -630,7 +751,7 @@ selected_data <- selected_sites %>%
   select(biosum_cond_id, ID, acres, rxpackage, random_harvest_assign)
 
 ## get discounted carbon values for each of these selected sites
-selected_disc <- merge(selected_data, all_discounted) %>% 
+selected_disc <- left_join(selected_data, all_discounted_FullDecay, by = c("biosum_cond_id","acres", "ID", "rxpackage")) %>% 
   rename("rxpackage_sel" = "rxpackage") %>% # rename columns to distinguish them before joining
   rename("discount_carb_sel" = "cum_discount_carb") %>% 
   rename("cost_baseline_rx" = "cum_discount_cost") %>% 
@@ -639,13 +760,9 @@ selected_disc <- merge(selected_data, all_discounted) %>%
   distinct()
 
 
-all_base <- left_join(grown_only, selected_disc, by = c("biosum_cond_id","acres", "ID")) %>% 
+all_base <- left_join(grow_only, selected_disc, by = c("biosum_cond_id","acres", "ID")) %>% 
   distinct()
 
-
-###     !!!!!!!!!!!!!!  #######
-####      FIX THIS        ######
-###     !!!!!!!!!!!!!!  #######
 
 
 ## calculate baseline
@@ -658,25 +775,26 @@ baseline_total <- all_base %>%
          cost_baseline_rx = replace_na(cost_baseline_rx,0),
          pct_grow_only = ((acres-random_harvest_assign)/acres),
          pct_select = (random_harvest_assign/acres),
-         base_disc_carb = (pct_grow_only*total_carb_sel)+(pct_select*total_carb_sel), #######FIX THIS######
+         base_disc_carb = (pct_grow_only*grow_only_carb)+(pct_select*total_carb_sel), 
          base_disc_cost = (pct_select*cost_baseline_rx))
          
 ## joing togeter and calculate relative carbon
-incorp_base <- left_join(all_discounted, baseline_total[,c("biosum_cond_id","base_disc_carb","base_disc_cost", "ID")])
+incorp_base <- left_join(all_discounted_FullDecay, baseline_total[,c("biosum_cond_id","base_disc_carb","base_disc_cost", "ID")])
 
 relative_carb <- incorp_base %>% 
-  mutate(relative_carb = cum_discount_carb-base_disc_carb,
-         relative_cost = cum_discount_cost-base_disc_cost)
+  mutate(relative_carb = total_discount_carb-base_disc_carb,
+         relative_cost = cum_discount_cost-base_disc_cost) %>% 
+  mutate(total_carbon = relative_carb* acres,
+         total_cost = relative_cost* acres,
+         cpu = total_cost/total_carbon)
 
-
+tmp <- relative_carb %>% 
+  select(-cum_discount_beccs, - cum_discount_ft, -cum_discount_ethanol, -cum_discount_biofuel, -cum_discount_biochar, - cum_discount_bf_char)
 
 ### final step:
 ## we now have final discounted values for each package for this plot, now select the package with the lowest CPU
 
-optimal <- relative_carb %>% 
-  mutate(total_carbon = relative_carb* acres,
-         total_cost = relative_cost* acres,
-         cpu = total_cost/total_carbon) %>% 
+optimal <- relative_carb  %>% 
   filter(cpu > 0 & total_carbon > 0) %>% 
   group_by(biosum_cond_id) %>% 
   filter(cpu == min(cpu)) %>% 
@@ -696,10 +814,21 @@ opt_tie_break <- optimal %>%
 cumsum <- optimal %>% 
   arrange(cpu) %>% 
   mutate(cumsum = cumsum(total_carbon)) %>% 
-  filter(cpu < 200)
+  filter(cpu < 220)
+
+library(scales) # for comma in x axis
 
 ggplot(cumsum, aes(cumsum, cpu)) +
-  geom_point()
+  geom_point(aes(color = cpu), size = 2.5) +
+  scale_colour_gradient2(low = "forestgreen", mid = "yellow", high = "red", midpoint = 100) +
+  scale_x_continuous(limits = c(-1000, 55000000), expand = c(0,0),label=comma) +
+  scale_y_continuous(limits = c(0,220), expand = c(0,0)) +
+  theme_minimal(base_size = 24) +
+  theme(legend.position = "none") +
+  labs(
+    x = "Tons of Carbon",
+    y = "$/Ton of Carbon"
+  )
 
 ##### Package counts ####
 package_count <- optimal %>% 
@@ -723,11 +852,17 @@ ggplot(package_count, aes(as.factor(rxpackage), n)) +
 ##### get plot locations for mapping #####
 
 cpu_locs <- left_join(opt_tie_break, counties)
-# write_csv(cpu_locs, "cpu_locs.csv")
+write_csv(cpu_locs, "cpu_locs.csv")
+# calculate the most common package per county and plot this
 
 
 
+#### calculate average cpu for each (not including optimal) treatments
 
+tmp <- relative_carb %>% 
+  filter(cpu > -400 & cpu < 400)
 
+ggplot(tmp, aes(x = reorder(rxpackage,-cpu,mean), y = cpu)) +
+  geom_boxplot(outlier.shape = NA)
 
 
