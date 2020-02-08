@@ -74,7 +74,7 @@ cond_lat_lon <- left_join(cond_sel, plot_sel)
 ## harvest cost per acre
 cost_sel <- cost %>%
   mutate(complete_cpa = harvest_onsite_cpa + haul_chip_cpa + haul_merch_cpa) %>%
-  select(biosum_cond_id, rxpackage, rxcycle, complete_cpa, haul_chip_cpa, haul_merch_cpa, harvest_onsite_cpa, chip_yield_gt, merch_yield_cf, merch_yield_gt) %>%
+  select(biosum_cond_id, rxpackage, rxcycle, complete_cpa, haul_chip_cpa, haul_merch_cpa, harvest_onsite_cpa, chip_yield_gt, merch_yield_cf, merch_yield_gt, merch_val_dpa, chip_val_dpa) %>%
   arrange(biosum_cond_id, rxpackage, rxcycle)
 
 
@@ -140,7 +140,7 @@ all_data <- left_join(all_data, new_id)
 rm(list = setdiff(ls(),"all_data"))
 
 # write_csv(all_data, "all_data.csv")
-# all_data <- read_csv("all_data.csv)
+all_data <- read_csv("all_data.csv")
 
 ###############################
 #### Select Baseline plots ####
@@ -386,43 +386,30 @@ for (i in length(plot_all$time)){
 #make sure time is numeric
 plot_all$time <- as.numeric(plot_all$time)
 
+plot_all <- plot_all %>% 
+  filter(ID == 11 & rxpackage == "004")
 
 ### clean merch_carbon removed ####
 
-# if cpa is NA, harvesting did not occur, therfor carbon removed == 0
-plot_all$Merch_Carbon_Removed <- if_else(is.na(plot_all$complete_cpa), 0, plot_all$Merch_Carbon_Removed)
-# remove duplicate caused by the pre/post
-plot_all$Merch_Carbon_Removed <- if_else(plot_all$Merch_Carbon_Removed > 0 & plot_all$section == "pre" ,0, plot_all$Merch_Carbon_Removed)
-
-### repeat for chip_yield
-plot_all$chip_yield_gt <- if_else(is.na(plot_all$complete_cpa), 0, plot_all$chip_yield_gt)
-# remove duplicate caused by the pre/post
-plot_all$chip_yield_gt <- if_else(plot_all$chip_yield_gt > 0 & plot_all$section == "pre" ,0, plot_all$chip_yield_gt)
-
-### repeat for merch_yield
-plot_all$merch_yield_gt <- if_else(is.na(plot_all$complete_cpa), 0, plot_all$merch_yield_gt)
-# remove duplicate caused by the pre/post
-plot_all$merch_yield_gt <- if_else(plot_all$merch_yield_gt > 0 & plot_all$section == "pre" ,0, plot_all$merch_yield_gt)
+clean_harvest_data <- function(column) {
+  
+  plot_all[,column] <-  if_else(is.na(plot_all$complete_cpa), 0, unlist(plot_all[,column]))
+  plot_all[,column] <- if_else(unlist(plot_all[column]) > 0 & plot_all$section == "pre" ,0, unlist(plot_all[,column]))
+  
+  return(unlist(plot_all[,column]))
+  
+}
 
 
-## clean cpa
-# if cpa is NA, harvesting did not occur, therfor cost == 0
-plot_all$complete_cpa <- if_else(is.na(plot_all$complete_cpa), 0 , plot_all$complete_cpa)
-# remove duplicate caused by the pre/post
-plot_all$complete_cpa <- if_else(plot_all$complete_cpa > 0 & plot_all$section == "pre", 0 , plot_all$complete_cpa)
-
-plot_all$haul_chip_cpa <- if_else(is.na(plot_all$complete_cpa), 0 , plot_all$haul_chip_cpa)
-# remove duplicate caused by the pre/post
-plot_all$haul_chip_cpa <- if_else(plot_all$haul_chip_cpa > 0 & plot_all$section == "pre", 0 , plot_all$haul_chip_cpa)
-
-plot_all$haul_merch_cpa <- if_else(is.na(plot_all$complete_cpa), 0 , plot_all$haul_merch_cpa)
-# remove duplicate caused by the pre/post
-plot_all$haul_merch_cpa <- if_else(plot_all$haul_merch_cpa > 0 & plot_all$section == "pre", 0 , plot_all$haul_merch_cpa)
-
-plot_all$harvest_onsite_cpa <- if_else(is.na(plot_all$complete_cpa), 0 , plot_all$harvest_onsite_cpa)
-# remove duplicate caused by the pre/post
-plot_all$harvest_onsite_cpa <- if_else(plot_all$harvest_onsite_cpa > 0 & plot_all$section == "pre", 0 , plot_all$harvest_onsite_cpa)
-
+plot_all$Merch_Carbon_Removed <- clean_harvest_data("Merch_Carbon_Removed")
+plot_all$chip_yield_gt <- clean_harvest_data("chip_yield_gt")
+plot_all$merch_yield_gt <-  clean_harvest_data("merch_yield_gt")
+plot_all$haul_chip_cpa <- clean_harvest_data("haul_chip_cpa")
+plot_all$haul_merch_cpa <- clean_harvest_data("haul_merch_cpa")
+plot_all$harvest_onsite_cpa <- clean_harvest_data("harvest_onsite_cpa")
+plot_all$chip_val_dpa <- clean_harvest_data("chip_val_dpa")
+plot_all$merch_val_dpa <- clean_harvest_data("merch_val_dpa")
+plot_all$complete_cpa <- clean_harvest_data("complete_cpa")
 
 
 ############################################
