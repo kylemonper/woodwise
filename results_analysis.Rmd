@@ -1,0 +1,169 @@
+---
+title: "Results_analysis"
+author: "AnnaClaire Marley"
+date: "2/22/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include = FALSE}
+library(tidyverse)
+```
+
+# **Package Frequency**
+```{r, echo = FALSE}
+# group by package and count package occurance
+package_count <- optimal %>% 
+  group_by(rxpackage) %>% 
+  tally()
+
+package_count$rxpackage <- factor(package_count$rxpackage, levels = package_count$rxpackage[order(-package_count$n)])
+
+# plot it
+ggplot(package_count, aes(as.factor(rxpackage), n)) +
+  geom_col() +
+  labs(
+    title = "counts of optimal packages",
+    x = "Treatment Package ID", 
+    y = "Count"
+  ) +
+  scale_y_continuous(expand = c(0,0)) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+
+# **County level analsyes**
+
+Average cost per acre by county
+```{r, echo = FALSE}
+simple_acre <- selected_sites %>%
+  select(biosum_cond_id, county) %>% 
+  left_join(optimal, by = "biosum_cond_id") %>% 
+  select(biosum_cond_id, ID, county, acres, rxpackage, 
+         total_cost, total_carbon, total_discount_carb, cpu)
+
+cost_acre <- simple_acre %>% 
+  mutate(cpa = total_cost/acres) %>% 
+  group_by(county) %>% 
+  summarize(mean_cpa = mean(cpa),
+            sd_cpa = sd(cpa)) %>% 
+  arrange(-mean_cpa)
+
+```
+
+Average carbon stored per acre by county
+```{r, echo = FALSE}
+carbon_acre <- simple_acre %>% 
+ mutate(carb_pa = total_carbon/acres) %>% 
+  group_by(county) %>% 
+  summarize(mean_carb_pa = mean(carb_pa),
+            sd_carb_pa = sd(carb_pa)) %>% 
+  arrange(-mean_carb_pa)
+```
+
+
+
+# Compare carbon consequences of surface fuels method
+```{r, echo = FALSE}
+# group the thinning treatments by surface fuels method
+rx_fire = c("001", "005", "010", "012", "015", "020", "024")
+pile_burn = c("002", "013")
+lop_scatter = c("004", "006", "007", "008", "009", "011", "014", 
+                "017", "018", "019", "023", "025", "026", "027")
+masticate = c("003")
+
+# assign them to the rxpackages
+simple_acre$surface_fuel = 0
+ for (i in length(simple_acre$rxpackage)) {
+   simple_acre$surface_fuel = ifelse(simple_acre$rxpackage %in% rx_fire, 
+                                     "rx_fire", simple_acre$surface_fuel)
+   
+   simple_acre$surface_fuel = ifelse(simple_acre$rxpackage %in% pile_burn, 
+                                     "pile_burn", simple_acre$surface_fuel)
+   
+   simple_acre$surface_fuel = ifelse(simple_acre$rxpackage %in% lop_scatter, 
+                                     "lop_scatter", simple_acre$surface_fuel)
+   
+   simple_acre$surface_fuel = ifelse(simple_acre$rxpackage %in% masticate,
+                                     "masticate", simple_acre$surface_fuel)
+ }
+  
+# order it
+
+surface_fuel_df <- simple_acre %>% 
+  filter(surface_fuel != 0) %>% 
+  mutate(carb_pa = total_carbon/acres)
+
+# graph it
+ggplot(surface_fuel_df, aes(x = surface_fuel, y = carb_pa)) +
+  geom_boxplot() +
+  labs(
+    x = "Surface Fuels Method",
+    y = "Total Carbon Stored per acre"
+  )
+
+```
+
+# Compare carbon consequences of grow only vs thinning vs clear cut
+
+```{r, echo=FALSE}
+# assign names for different types of treatments
+simple_acre$treatment_type = 0
+for (i in length(simple_acre$rxpackage)) {
+   simple_acre$treatment_type = ifelse(simple_acre$rxpackage %in% c("029","030","032"), 
+                                     "clear_cut", simple_acre$treatment_type)
+   
+   simple_acre$treatment_type = ifelse(simple_acre$rxpackage == "031", 
+                                     "grow_only", simple_acre$treatment_type)
+   
+   simple_acre$treatment_type = ifelse(simple_acre$treatment_type == 0, 
+                                       "thinning", simple_acre$treatment_type)
+ }
+
+```
+
+```{r, echo = FALSE}
+### plot the differences ####
+
+# boxplot of cost per unit carbon range
+ggplot(simple_acre, aes(x = treatment_type, y = cpu)) +
+  geom_boxplot() +
+  labs(x = "Treatment Type",
+       y = "Cost per Ton of Carbon") +
+  theme_bw()
+
+# boxplot of cost per acre
+cost_plot <- simple_acre %>% 
+  mutate(cpa = total_cost/acres) %>% 
+  ggplot(aes(x = treatment_type, y = cpa)) +
+    geom_boxplot() +
+    labs(x = "Treatment Type",
+         y = "Cost per Acre") +
+    theme_bw()
+
+# boxplot of carbon stored per acre
+carbon_plot <- simple_acre %>% 
+  mutate(carbon_pa = total_carbon/acres) %>% 
+  ggplot(aes(x = treatment_type, y = carbon_pa)) +
+    geom_boxplot() +
+    labs(x = "Treatment Type",
+         y = "Carbon Stored per Acre") +
+    theme_bw()
+```
+
+
+
+
+
+
+
+
+
+
+
+
