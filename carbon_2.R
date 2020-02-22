@@ -134,12 +134,12 @@ post_full$section <- "post"
 ## full df 
 all_data <- bind_rows(pre_full,post_full)
 
-all_data <- left_join(all_data, new_id)
+all_data <- left_join(all_data, new_id) 
 
 ## clean environment of everything except the new full dataset
 rm(list = setdiff(ls(),"all_data"))
 
-# write_csv(all_data, "all_data.csv")
+write_csv(all_data, "all_data.csv")
 all_data <- read_csv("all_data.csv")
 
 ###############################
@@ -386,10 +386,8 @@ for (i in length(plot_all$time)){
 #make sure time is numeric
 plot_all$time <- as.numeric(plot_all$time)
 
-plot_all <- plot_all %>% 
-  filter(ID == 11 & rxpackage == "004")
-
-### clean merch_carbon removed ####
+### clean harvest data ####
+## remove na's, and duplicates from pre/post
 
 clean_harvest_data <- function(column) {
   
@@ -409,7 +407,7 @@ plot_all$haul_merch_cpa <- clean_harvest_data("haul_merch_cpa")
 plot_all$harvest_onsite_cpa <- clean_harvest_data("harvest_onsite_cpa")
 plot_all$chip_val_dpa <- clean_harvest_data("chip_val_dpa")
 plot_all$merch_val_dpa <- clean_harvest_data("merch_val_dpa")
-plot_all$complete_cpa <- clean_harvest_data("complete_cpa")
+plot_all$complete_cpa <- clean_harvest_data("complete_cpa") # keep complete_cpa last
 
 
 ############################################
@@ -560,6 +558,7 @@ add_chip_decay <- function(df, pathway, decay_pct){
   return(summed)
 }
 
+
 ## discount
 add_discounting = function(df){
   pre_post <- df %>% 
@@ -572,7 +571,7 @@ add_discounting = function(df){
     # convert green tons to C
     mutate(merch_carbon = merch_yield_gt * .325) %>% 
     mutate(chip_carbon = chip_yield_gt * .325)
-    
+  
   
   
   
@@ -600,9 +599,9 @@ add_discounting = function(df){
   ## add in decay of chip paths (decay/ biochar)
   plot_time$decay <- add_chip_decay(plot_time, "decay", decay_pct)
   plot_time$biochar <- add_chip_decay(plot_time, "biochar", char_pct)
-
-
-  ## get yearly difference for merch
+  
+  
+  ## get yearly difference for merch and chips
   plot_merch_diff <- plot_time %>% 
     mutate(merch_diff = merch_decay - lag(merch_decay),
            merch_diff = replace_na(merch_diff, 0)) %>% 
@@ -611,15 +610,16 @@ add_discounting = function(df){
     mutate(biochar_diff = biochar - lag(biochar),
            biochar_diff = replace_na(biochar_diff, 0)) 
   
-  ### assume that chips are not actually transported to facilities
+  ### assume that chips are not actually transported to facilities (therefore no cost or value)
   ##~ maybe want to add some cost for the theoretical "spreading" of chips
   update_haul_cost <- plot_merch_diff %>% 
-    mutate(haul_chip_cpa = haul_chip_cpa * (1 - decay_pct))
+    mutate(haul_chip_cpa = haul_chip_cpa * (1 - decay_pct),
+           chip_val_dpa = chip_val_dpa * (1 - decay_pct))
   
   ## add a discounted column that is discounted by 0.05 
   # that is the cumulative sum for each year of discounted carbon
   
-  plot_time_discounts <- plot_merch_diff %>% 
+  plot_time_discounts <- update_haul_cost %>% 
     # discounted carbon for each year
     # mutate(discount_carb = each_year/((1+0.05)^time)) %>% 
     # cumulative discounted carbon
@@ -631,18 +631,24 @@ add_discounting = function(df){
     # discounted cost
     mutate(discount_haul_merch = haul_merch_cpa/((1+0.05)^time)) %>% 
     mutate(discount_haul_chip = haul_chip_cpa/((1+0.05)^time)) %>% 
-    mutate(discount_cost = discount_haul_chip + discount_haul_merch) %>% 
+    mutate(discount_harvest = harvest_onsite_cpa/((1+.05)&time)) %>% 
+    mutate(discount_cost = discount_haul_chip + discount_haul_merch + discount_harvest) %>% 
     mutate(discount_cost = replace_na(discount_cost,0)) %>% 
-    mutate(cum_discount_cost = cumsum(discount_cost)) 
+    mutate(cum_discount_cost = cumsum(discount_cost)) %>% 
+    #discouneted revenue
+    mutate(discount_merch_dpa = merch_val_dpa/((1+0.05)^time)) %>% 
+    mutate(discount_chip_dpa = chip_val_dpa/((1+0.05)^time)) %>% 
+    mutate(discount_val = discount_merch_dpa + discount_chip_dpa) %>% 
+    mutate(discount_val = replace_na(discount_val, 0)) %>% 
+    mutate(cum_discount_val = cumsum(discount_val))
   
   ## the information we want to end up with for each distinct plot and package
   final_cumulative <- plot_time_discounts %>% 
     filter(time == 31) %>% 
-    select(biosum_cond_id, ID, acres, rxpackage, cum_discount_carb, cum_discount_merch, cum_discount_cost, total_discount_carb, cum_discount_decay, cum_discount_biochar)
+    select(biosum_cond_id, ID, acres, rxpackage, cum_discount_carb, cum_discount_merch, cum_discount_cost, total_discount_carb, cum_discount_decay, cum_discount_biochar, cum_discount_val)
   
   return(final_cumulative)
 }
-
 
 ## create function that applies the discount function  ^ to each plot+package 
 discount_all <- function(df) {
@@ -704,17 +710,87 @@ discount_all <- function(df) {
 decay_pct <- 1
 char_pct <- 0
 
-
+# test <- plot_all %>% 
+#   filter(ID == 11)
+# 
+# tmp_disc <- discount_all(test)
 
 ### discount all packages
-## this will take ~90 minutes
-Sys.time()
-all_discounted_FullDecay <- discount_all(plot_all)
-Sys.time()
-write_csv(all_discounted_FullDecay, "all_discounted_FullDecay.csv")
+## this will take ~2 hours
+# Sys.time()
+# all_discounted_FullDecay <- discount_all(plot_all)
+# Sys.time()
+# write_csv(all_discounted_FullDecay, "all_discounted_FullDecay.csv")
 
 all_discounted_FullDecay <- read_csv("all_discounted_FullDecay.csv")
 all_discounted_FullDecay$biosum_cond_id <- as.numeric(all_discounted_FullDecay$biosum_cond_id)
+
+############################
+# add in cost of THP and NTMP
+############################
+###
+###       THP
+###
+############################
+
+thp <- read_csv("CALFIRE_THPS.csv")
+ntmp <- read_csv("CALFIRE_NTMPS.csv")
+
+#### we need to rethink the weighted sum: this is waaaaaaay over estimating the cost
+
+##THP
+thp_grouped <- thp %>% 
+  mutate(size = if_else(ACRES < 500, "small",
+                        if_else(ACRES > 500 & ACRES < 2500, "medium", "large")))
+
+thp_total <- thp_grouped %>% 
+  group_by(size) %>% 
+  summarise(total = sum(ACRES),
+            avg_size = median(ACRES)) %>% 
+  ungroup() %>% 
+  mutate(cost = if_else(size == "small", 40000,
+                        if_else(size == "medium", 80000, 120000)),
+         avg_cpa = cost/avg_size)
+
+thp_avg_cpa <- weighted.mean(thp_total$avg_cpa, thp_total$total)
+
+### NTMP
+ntmp_grouped <- ntmp %>% 
+  mutate(size = if_else(ACRES < 500, "small", "large"))
+
+ntmp_total <- ntmp_grouped %>% 
+  group_by(size) %>% 
+  summarise(total = sum(ACRES),
+            avg_size = mean(ACRES)) %>% 
+  ungroup() %>% 
+  mutate(cost = if_else(size == "small", 48000, 124000),
+         avg_cpa = cost/avg_size)
+
+ntmp_avg_cpa <- weighted.mean(ntmp_total$avg_cpa, ntmp_total$total)
+
+
+#### discount THP cost
+
+thp_df <- data.frame(time = seq(1,31,6), thp_cpa = rep(thp_avg_cpa,6))
+
+thp_cost <- thp_df %>% 
+  mutate(disc_thp = thp_avg_cpa/((1+0.05)^time))
+
+total_thp_cpa <- sum(thp_cost$disc_thp)
+
+
+
+tmp_join <- left_join(all_discounted_FullDecay, all_data[,c("owngrpcd", "ID")]) %>% 
+  distinct()
+
+### if private and cc, add cost of thp, if private and thin, add ntmp
+#~ then add this to the cum_discount_cost
+all_discounted_FullDecay <- tmp_join %>% 
+  mutate(plan_cost = if_else(owngrpcd == 40 & rxpackage %in% c("032", "033"), total_thp_cpa*acres, 
+                             if_else(owngrpcd == 40 & !rxpackage %in% c("032", "033"), ntmp_avg_cpa*acres, 0)),
+         cum_discount_cost = cum_discount_cost + plan_cost)
+  
+
 ##########################
 ### subtract baseline ####
 ##########################
@@ -734,10 +810,12 @@ grow_only <- all_discounted_FullDecay %>%
   
 
 ## get relevent data from selected_sites
+## read in selected data at line 356
 selected_data <- selected_sites %>% 
   select(biosum_cond_id, ID, acres, rxpackage, random_harvest_assign)
 
 ## get discounted carbon values for each of these selected sites
+
 selected_disc <- left_join(selected_data, all_discounted_FullDecay, by = c("biosum_cond_id","acres", "ID", "rxpackage")) %>% 
   rename("rxpackage_sel" = "rxpackage") %>% # rename columns to distinguish them before joining
   rename("discount_carb_sel" = "cum_discount_carb") %>% 
@@ -747,7 +825,7 @@ selected_disc <- left_join(selected_data, all_discounted_FullDecay, by = c("bios
   distinct()
 
 
-all_base <- left_join(grow_only, selected_disc, by = c("biosum_cond_id","acres", "ID")) %>% 
+all_base <- left_join(grow_only, selected_disc, by = c("acres", "ID")) %>% 
   distinct()
 
 
@@ -760,36 +838,47 @@ baseline_total <- all_base %>%
   mutate(random_harvest_assign = replace_na(random_harvest_assign, 0),
          total_carb_sel = replace_na(total_carb_sel,0),
          cost_baseline_rx = replace_na(cost_baseline_rx,0),
+         cum_discount_val = replace_na(cum_discount_val,0),
          pct_grow_only = ((acres-random_harvest_assign)/acres),
          pct_select = (random_harvest_assign/acres),
          base_disc_carb = (pct_grow_only*grow_only_carb)+(pct_select*total_carb_sel), 
-         base_disc_cost = (pct_select*cost_baseline_rx))
+         base_disc_cost = (pct_select*cost_baseline_rx),
+         base_disc_val = (pct_select*cum_discount_val))
          
 ## joing togeter and calculate relative carbon
-incorp_base <- left_join(all_discounted_FullDecay, baseline_total[,c("biosum_cond_id","base_disc_carb","base_disc_cost", "ID")])
+incorp_base <- left_join(all_discounted_FullDecay, baseline_total[,c("base_disc_carb","base_disc_cost","base_disc_val", "ID")]) %>% 
+  distinct()
+
+test <- incorp_base %>% 
+  group_by(ID) %>% 
+  tally()
+
 
 relative_carb <- incorp_base %>% 
   mutate(relative_carb = total_discount_carb-base_disc_carb,
-         relative_cost = cum_discount_cost-base_disc_cost) %>% 
-  mutate(total_carbon = relative_carb* acres,
+         relative_cost = cum_discount_cost-base_disc_cost,
+         relative_val = cum_discount_val-base_disc_val) %>% 
+  mutate(total_carbon = relative_carb * acres,
          total_cost = relative_cost* acres,
-         cpu = total_cost/total_carbon)
+         total_val = relative_val*acres,
+         cpu = total_cost/total_carbon,
+         cpu_rev = (total_cost-total_val)/total_carbon)
 
-tmp <- relative_carb %>% 
-  select(-cum_discount_beccs, - cum_discount_ft, -cum_discount_ethanol, -cum_discount_biofuel, -cum_discount_biochar, - cum_discount_bf_char)
+
 
 ### final step:
 ## we now have final discounted values for each package for this plot, now select the package with the lowest CPU
 
 optimal <- relative_carb  %>% 
-  filter(cpu > 0 & total_carbon > 0) %>% 
+  filter(total_carbon > 0) %>% 
   group_by(biosum_cond_id) %>% 
   filter(cpu == min(cpu)) %>% 
   ungroup()
 
 opt_tie_break <- optimal %>% 
   group_by(ID) %>% 
-  sample_n(1)
+  sample_n(1) %>% 
+  ungroup()
 
 
 ###################################
@@ -798,24 +887,56 @@ opt_tie_break <- optimal %>%
 
 ###### MCC #######
 ## get cumsum
-cumsum <- optimal %>% 
+cumsum <- opt_tie_break %>% 
   arrange(cpu) %>% 
-  mutate(cumsum = cumsum(total_carbon)) %>% 
-  filter(cpu < 220)
+  filter(cpu > -100 & cpu < 200) %>% 
+  mutate(cumsum_carb = cumsum(total_carbon))
+  
+
+
 
 library(scales) # for comma in x axis
 
-ggplot(cumsum, aes(cumsum, cpu)) +
+ggplot(cumsum, aes(cumsum_carb, cpu)) +
   geom_point(aes(color = cpu), size = 2.5) +
-  scale_colour_gradient2(low = "forestgreen", mid = "yellow", high = "red", midpoint = 100) +
-  scale_x_continuous(limits = c(-1000, 55000000), expand = c(0,0),label=comma) +
-  scale_y_continuous(limits = c(0,220), expand = c(0,0)) +
+  scale_colour_gradient2(low = "forestgreen", mid = "yellow", high = "red", midpoint = 20) +
+  scale_x_continuous(limits = c(0, 40000000),label=comma) +
+  scale_y_continuous(limits = c(-150,220), expand = c(0,0)) +
   theme_minimal(base_size = 24) +
   theme(legend.position = "none") +
   labs(
     x = "Tons of Carbon",
     y = "$/Ton of Carbon"
   )
+
+### repeat for using rev
+optimal_rev <- relative_carb  %>% 
+  filter(relative_carb > 0) %>% 
+  group_by(ID) %>% 
+  filter(cpu_rev == min(cpu_rev)) %>% 
+  ungroup()
+
+opt_tie_break_rev <- optimal_rev %>% 
+  group_by(ID) %>% 
+  sample_n(1) %>% 
+  ungroup()
+
+cumsum_rev <- opt_tie_break_rev %>% 
+  arrange(cpu_rev) %>% 
+  mutate(cumsum_rev = cumsum(total_carbon))
+  
+ggplot(cumsum_rev, aes(cumsum_rev, cpu_rev)) +
+  geom_point(aes(color = cpu), size = 2.5) +
+  scale_colour_gradient2(low = "forestgreen", mid = "yellow", high = "red") +
+  scale_x_continuous(limits = c(-1000, 55000000), expand = c(0,0),label=comma) +
+  scale_y_continuous(limits = c(-10000,2200), expand = c(0,0)) +
+  theme_minimal(base_size = 24) +
+  theme(legend.position = "none") +
+  labs(
+    x = "Tons of Carbon",
+    y = "$/Ton of Carbon"
+  )
+
 
 ##### Package counts ####
 package_count <- optimal %>% 
@@ -851,5 +972,17 @@ tmp <- relative_carb %>%
 
 ggplot(tmp, aes(x = reorder(rxpackage,-cpu,mean), y = cpu)) +
   geom_boxplot(outlier.shape = NA)
+
+
+##### how much would be abated at the given price of 15
+
+carb_15 <- cumsum %>% 
+  filter(cpu <= 15)
+
+abate_25 <- cumsum %>% 
+  filter(cumsum_carb <= 25000000) 
+
+### this function approximates taking the integral of points w/in an x-y coordinate system
+total_cost_25mt <- pracma::trapz(abate_25$cumsum_carb, abate_25$cpu)
 
 
