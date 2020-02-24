@@ -773,18 +773,6 @@ thp_simple_average <- (40000/250 + 80000/1250 + 120000/2000)/3
 
 ntmp_simple_average <- thp_simple_average*1.2 # 20% more than thp
 
-
-#######
-#### discount THP cost
-
-thp_df <- data.frame(time = seq(1,31,6), thp_cpa = rep(thp_avg_cpa,6))
-
-thp_cost <- thp_df %>% 
-  mutate(disc_thp = thp_avg_cpa/((1+0.05)^time))
-
-total_thp_cpa <- sum(thp_cost$disc_thp)
-
-
 ##  agin for the simple
 thp_simple_df <- data.frame(time = seq(1,31,6), thp_cpa = rep(thp_simple_average,6))
 
@@ -944,8 +932,8 @@ library(scales) # for comma in x axis
 
 ggplot(cumsum, aes(cumsum_carb, cpu)) +
   geom_point(aes(color = cpu)) +
-  geom_point(data = cumsum_og, aes(cumsum_carb, cpu, color = cpu), shape = 11) +
-  scale_colour_gradient2(low = "forestgreen", mid = "yellow", high = "red", midpoint = 20) +
+  # geom_point(data = cumsum_og, aes(cumsum_carb, cpu, color = cpu), shape = 11) +
+  scale_colour_gradient2(low = "forestgreen", mid = "yellow", high = "red", midpoint = 50) +
   scale_x_continuous(limits = c(0, 60000000),label=comma) +
   scale_y_continuous(limits = c(-150,220), expand = c(0,0)) +
   theme_minimal(base_size = 24) +
