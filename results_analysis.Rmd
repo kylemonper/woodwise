@@ -41,10 +41,13 @@ ggplot(package_count, aes(as.factor(rxpackage), n)) +
 
 Average cost per acre by county
 ```{r, echo = FALSE}
+## decay = chips
+## cum_discount_carb = discounted total stand carbon
+## cum_discount_merch = cummulative discounted merchantable
 simple_acre <- selected_sites %>%
   select(biosum_cond_id, county) %>% 
-  left_join(optimal, by = "biosum_cond_id") %>% 
-  select(biosum_cond_id, ID, county, acres, rxpackage, 
+  left_join(opt_tie_break, by = "biosum_cond_id") %>% 
+  select(biosum_cond_id, ID, county, acres, rxpackage, cum_discount_carb, cum_discount_merch, cum_discount_decay,
          total_cost, total_carbon, total_discount_carb, cpu)
 
 cost_acre <- simple_acre %>% 
@@ -69,6 +72,9 @@ carbon_acre <- simple_acre %>%
 
 
 # Compare carbon consequences of surface fuels method
+
+NOTE: 32 and 33 are clear cut
+31 = grow only
 ```{r, echo = FALSE}
 # group the thinning treatments by surface fuels method
 rx_fire = c("001", "005", "010", "012", "015", "020", "024")
