@@ -309,6 +309,8 @@ for (i in 1:10) {
 
 res <- bind_rows(all_section)
 
+write_csv(res, "baseline_sens_res.csv")
+
 filt <- filter(res, run == 1)
 
 p <- ggplot() +
