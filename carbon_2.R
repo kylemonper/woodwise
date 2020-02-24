@@ -59,7 +59,7 @@ odbcCloseAll()
 
 
 plot_sel <- plot_m %>%
-  select(biosum_plot_id, lat, lon)
+  select(biosum_plot_id, lat, lon, elev)
 
 cond_sel <- cond_m %>%
   select(biosum_cond_id, biosum_plot_id)
@@ -80,10 +80,10 @@ cost_sel <- cost %>%
 
 ## stand carbon
 pre_carb_sel <- pre_carb %>%
-  select(biosum_cond_id, rxpackage, rxcycle, Total_Stand_Carbon)
+  select(biosum_cond_id, fvs_variant, rxpackage, rxcycle, Total_Stand_Carbon)
 
 post_carb_sel <- post_carb %>%
-  select(biosum_cond_id, rxpackage, rxcycle, Total_Stand_Carbon)
+  select(biosum_cond_id, fvs_variant, rxpackage, rxcycle, Total_Stand_Carbon)
 
 
 
@@ -122,7 +122,7 @@ new_id <- data.frame(biosum_cond_id = plots, ID = 1:length(plots))
 plots_loc <- left_join(new_id, cond_lat_lon)
 
 
-# write_csv(plots_loc, "plot_loc.csv")
+write_csv(plots_loc, "plot_loc.csv")
 test <- read_csv("plot_loc.csv")
 
 
