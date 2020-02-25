@@ -13,10 +13,18 @@ knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
 ```
 
+```{r, include = FALSE}
+
+opt_tie_break <- read_csv("opt_tie_break.csv")
+selected_sites <- read_csv("selected_sites.csv")
+
+```
+
+
 # **Package Frequency**
 ```{r, echo = FALSE}
 # group by package and count package occurance
-package_count <- optimal %>% 
+package_count <- opt_tie_break %>% 
   group_by(rxpackage) %>% 
   tally()
 
@@ -45,10 +53,12 @@ Average cost per acre by county
 ## cum_discount_carb = discounted total stand carbon
 ## cum_discount_merch = cummulative discounted merchantable
 simple_acre <- selected_sites %>%
-  select(biosum_cond_id, county) %>% 
-  left_join(opt_tie_break, by = "biosum_cond_id") %>% 
-  select(biosum_cond_id, ID, county, acres, rxpackage, cum_discount_carb, cum_discount_merch, cum_discount_decay,
-         total_cost, total_carbon, total_discount_carb, cpu)
+  select(ID, county) %>% 
+  left_join(opt_tie_break, by = "ID") %>% 
+  select(biosum_cond_id, ID, county, acres, rxpackage, 
+         cum_discount_carb, cum_discount_merch, cum_discount_decay,
+         total_cost, total_carbon, total_discount_carb, cpu) %>% 
+  filter(biosum_cond_id != "NA")
 
 cost_acre <- simple_acre %>% 
   mutate(cpa = total_cost/acres) %>% 
@@ -85,7 +95,6 @@ masticate = c("003")
 
 # assign them to the rxpackages
 simple_acre$surface_fuel = 0
- for (i in length(simple_acre$rxpackage)) {
    simple_acre$surface_fuel = ifelse(simple_acre$rxpackage %in% rx_fire, 
                                      "rx_fire", simple_acre$surface_fuel)
    
@@ -97,7 +106,7 @@ simple_acre$surface_fuel = 0
    
    simple_acre$surface_fuel = ifelse(simple_acre$rxpackage %in% masticate,
                                      "masticate", simple_acre$surface_fuel)
- }
+
   
 # order it
 
@@ -120,16 +129,14 @@ ggplot(surface_fuel_df, aes(x = surface_fuel, y = carb_pa)) +
 ```{r, echo=FALSE}
 # assign names for different types of treatments
 simple_acre$treatment_type = 0
-for (i in length(simple_acre$rxpackage)) {
-   simple_acre$treatment_type = ifelse(simple_acre$rxpackage %in% c("029","030","032"), 
+   simple_acre$treatment_type = ifelse(simple_acre$rxpackage %in% c("033","032"), 
                                      "clear_cut", simple_acre$treatment_type)
    
    simple_acre$treatment_type = ifelse(simple_acre$rxpackage == "031", 
                                      "grow_only", simple_acre$treatment_type)
    
-   simple_acre$treatment_type = ifelse(simple_acre$treatment_type == 0, 
+   simple_acre$treatment_type = ifelse(!(simple_acre$rxpackage %in% c("033","032", "031")), 
                                        "thinning", simple_acre$treatment_type)
- }
 
 ```
 
@@ -152,6 +159,8 @@ cost_plot <- simple_acre %>%
          y = "Cost per Acre") +
     theme_bw()
 
+cost_plot
+
 # boxplot of carbon stored per acre
 carbon_plot <- simple_acre %>% 
   mutate(carbon_pa = total_carbon/acres) %>% 
@@ -160,16 +169,192 @@ carbon_plot <- simple_acre %>%
     labs(x = "Treatment Type",
          y = "Carbon Stored per Acre") +
     theme_bw()
+carbon_plot
+```
+
+Look at what the spread is between how much carbon is stored in products vs in the stand
+
+```{r, echo = FALSE}
+## decay = chips
+## cum_discount_carb = discounted total stand carbon
+## cum_discount_merch = cummulative discounted merchantable
+
+portions <- simple_acre %>% 
+  select(ID, rxpackage, county, acres, 
+         cum_discount_carb, cum_discount_merch,
+         total_discount_carb) %>% 
+  mutate(ratio_stand_carb = cum_discount_carb/total_discount_carb) %>% 
+  mutate(ratio_merch_carb = cum_discount_merch/total_discount_carb)
+
+```
+
+create a boxplot showing the differences in spread in ratios between merchatnable and stand carbon in general
+
+```{r, echo = FALSE}
+
+ratio_boxplot <- portions %>% 
+  select(ratio_stand_carb, ratio_merch_carb) %>% 
+  gather() %>% 
+  ggplot(aes(x = key, y = value)) +
+  geom_boxplot() +
+  labs(
+    y = "Ratio to Total Carbon",
+    x = ""
+  ) +
+  scale_x_discrete(labels = c('Merchantable Carbon','Stand Carbon'))
+ratio_boxplot
+
+```
+
+same plot but just for clear cutting scenarios
+NOTE: 32 and 33 are clear cut
+31 = grow only
+```{r, echo = FALSE}
+
+ratio_boxplot_clearcut <- portions %>% 
+  filter(rxpackage == "032" | rxpackage == "033") %>% 
+  select(ratio_stand_carb, ratio_merch_carb) %>% 
+  gather() %>% 
+  ggplot(aes(x = key, y = value)) +
+  geom_boxplot() +
+  labs(
+    y = "Ratio to Total Carbon",
+    x = ""
+  ) +
+  scale_x_discrete(labels = c('Merchantable Carbon','Stand Carbon'))
+ratio_boxplot_clearcut
+
+```
+
+same plot but just for thinning scenarios
+
+```{r, echo = FALSE}
+
+ratio_boxplot_thinning <- portions %>% 
+  filter(rxpackage != "032" | rxpackage != "033") %>% 
+  select(ratio_stand_carb, ratio_merch_carb) %>% 
+  gather() %>% 
+  ggplot(aes(x = key, y = value)) +
+  geom_boxplot() +
+  labs(
+    y = "Ratio to Total Carbon",
+    x = ""
+  ) +
+  scale_x_discrete(labels = c('Merchantable Carbon','Stand Carbon'))
+ratio_boxplot_thinning
+
+```
+
+Look at how carbon stored varies across the different eco regions (variants)
+
+```{r, echo = FALSE}
+all_data <- read_csv("all_data.csv")
+
+variants <- all_data %>% 
+  select(ID, fvs_variant, owngrpcd) %>% 
+  group_by(ID, fvs_variant, owngrpcd) %>% 
+  summarize()
+
+simple_plus <- simple_acre %>% 
+  left_join(variants, by = "ID")
+
+```
+
+Total carbon stored by variant
+
+```{r, echo = FALSE}
+
+variant_carbon <- simple_plus %>% 
+  select(biosum_cond_id, ID, rxpackage, fvs_variant, owngrpcd, cpu, 
+         total_discount_carb, acres, total_cost) 
+
+variant_boxplot <- variant_carbon %>% 
+  ggplot(aes(x = fvs_variant, y = total_discount_carb)) +
+  geom_boxplot() +
+  labs(
+    x = "FVS Variant",
+    y = "Total Discounted Carbon"
+  )
+variant_boxplot
+
+```
+
+total cpu split by variant
+
+```{r, echo = FALSE}
+
+variant_cost_boxplot <- variant_carbon %>% 
+  ggplot(aes(x = fvs_variant, y = cpu)) +
+  geom_boxplot() +
+  labs(
+    x = "FVS Variant",
+    y = "Cost ($) per Ton of Carbon"
+  )
+
+variant_cost_boxplot
+
+```
+
+cost per acre split by variant
+
+```{r, echo = FALSE}
+variant_cpa <- variant_carbon %>% 
+  mutate(cpa = total_cost/acres) %>% 
+  ggplot(aes(x = fvs_variant, y = cpa)) +
+  geom_boxplot() +
+  labs(
+    x = "FVS Variant",
+    y = "Cost per Acre"
+  )
+variant_cpa
+```
+
+Now let's look at the relationship between cost and elevation 
+
+```{r, echo = FALSE}
+
+plot_loc <- read_csv("plot_loc.csv")
+
+elevation_variants <- plot_loc %>% 
+  select(ID, elev) %>% 
+  left_join(variant_carbon, by = "ID") %>% 
+  filter(biosum_cond_id != "NA") %>% 
+  mutate(cpa = total_cost/acres)
+
+ggplot(elevation_variants, aes(x = elev, y = cpa)) +
+  geom_point(aes(color = fvs_variant))
+  
+
+```
+
+Seems like there's actually not a relationship between elevationa nd cost 
+
+
+```{r, echo= FALSE}
+
+
 ```
 
 
+## Allocation of costs
+```{r, echo = FALSE}
+costs <- opt_tie_break %>% 
+  select(ID, acres, rxpackage, discount_harvest, 
+         discount_haul_chip, discount_haul_merch, total_discount_carb) %>% 
+  mutate(cpa_harvest = discount_harvest/acres) %>% 
+  mutate(cpa_haul_chip = discount_haul_chip/acres) %>% 
+  mutate(cpa_haul_merch = discount_haul_merch/acres)
 
-
-
-
-
-
-
-
-
+costs_spread <- costs %>% 
+  select(cpa_harvest, cpa_haul_chip, cpa_haul_merch) %>% 
+  gather() %>% 
+  ggplot(aes(x = key, y = value)) +
+  geom_boxplot() +
+  labs(
+    y = "Cost per Acre",
+    x = "Cost Type"
+  )
+  
+costs_spread
+```
 
