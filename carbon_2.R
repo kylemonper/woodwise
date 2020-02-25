@@ -1032,3 +1032,8 @@ abate_25 <- cumsum %>%
 total_cost_25mt <- pracma::trapz(abate_25$cumsum_carb, abate_25$cpu)
 
 
+
+
+
+
+
