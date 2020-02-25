@@ -21,6 +21,22 @@ selected_sites <- read_csv("selected_sites.csv")
 ```
 
 
+
+```{r}
+optimal_noCC <- relative_carb %>% 
+    filter(total_carbon > 0 & rxpackage != "031") %>% 
+    mutate(value = (price * total_carbon) - total_cost) %>% 
+    group_by(ID) %>% 
+    filter(value > 0 &
+             value == max(value))
+
+opt_tie_break_nocc <- optimal_noCC %>% 
+  group_by(ID) %>% 
+  sample_n(1) %>% 
+  ungroup()
+```
+
+
 # **Package Frequency**
 ```{r, echo = FALSE}
 # group by package and count package occurance
@@ -175,7 +191,7 @@ carbon_plot
 Look at what the spread is between how much carbon is stored in products vs in the stand
 
 ```{r, echo = FALSE}
-## decay = chips
+## cum_discount_decay = chips
 ## cum_discount_carb = discounted total stand carbon
 ## cum_discount_merch = cummulative discounted merchantable
 

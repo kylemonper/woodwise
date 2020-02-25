@@ -882,12 +882,12 @@ relative_carb <- read_csv("relativ_carb.csv")
 price <- 200
 
 ## new method for selecting optimal (based on value of carbon)
-optimal <- relative_carb %>% 
-  filter(total_carbon > 0 & rxpackage != "031") %>% 
-  mutate(value = (price * total_carbon) - total_cost) %>% 
-  group_by(ID) %>% 
-  filter(value > 0 &
-           value == max(value))
+  optimal <- relative_carb %>% 
+    filter(total_carbon > 0 & rxpackage != "031") %>% 
+    mutate(value = (price * total_carbon) - total_cost) %>% 
+    group_by(ID) %>% 
+    filter(value > 0 &
+             value == max(value))
 
 opt_tie_break <- optimal %>% 
   group_by(ID) %>% 
