@@ -611,16 +611,11 @@ add_discounting = function(df){
     mutate(biochar_diff = biochar - lag(biochar),
            biochar_diff = replace_na(biochar_diff, 0)) 
   
-  ### assume that chips are not actually transported to facilities (therefore no cost or value)
-  ##~ maybe want to add some cost for the theoretical "spreading" of chips
-  update_haul_cost <- plot_merch_diff %>% 
-    mutate(haul_chip_cpa = haul_chip_cpa * (1 - decay_pct),
-           chip_val_dpa = chip_val_dpa * (1 - decay_pct))
   
   ## add a discounted column that is discounted by 0.05 
   # that is the cumulative sum for each year of discounted carbon
   
-  plot_time_discounts <- update_haul_cost %>% 
+  plot_time_discounts <- plot_merch_diff %>% 
     # discounted carbon for each year
     # mutate(discount_carb = each_year/((1+0.05)^time)) %>% 
     # cumulative discounted carbon
@@ -867,7 +862,7 @@ relative_carb <- incorp_base %>%
          cpu = total_cost/total_carbon,
          cpu_rev = (total_cost-total_val)/total_carbon)
 
-
+### last write: 2/25/2020
 #write_csv(relative_carb, "relativ_carb.csv")
 relative_carb <- read_csv("relativ_carb.csv")
 
@@ -907,6 +902,21 @@ opt_tie_break_og <- optimal_og %>%
   ungroup()
 
 
+
+optimal_noCC <- relative_carb %>% 
+  filter(total_carbon > 0 ) %>%     
+  filter(!rxpackage %in% c("032", "033")) %>% 
+  mutate(value = (price * total_carbon) - total_cost) %>% 
+  group_by(ID) %>% 
+  filter(value > 0 &
+           value == max(value))
+
+opt_tie_break_nocc <- optimal_noCC %>% 
+  group_by(ID) %>% 
+  sample_n(1) %>% 
+  ungroup()
+
+
 ###################################
 ############ RESULTS ##############
 ###################################
@@ -926,13 +936,18 @@ cumsum_og <- opt_tie_break_og %>%
   mutate(cumsum_carb = cumsum(total_carbon))
   
 
+cumsum_noCC <- opt_tie_break_nocc %>% 
+  arrange(cpu) %>% 
+  filter(cpu > -100 & cpu < 200) %>% 
+  mutate(cumsum_carb = cumsum(total_carbon))
 
 
 library(scales) # for comma in x axis
 
 ggplot(cumsum, aes(cumsum_carb, cpu)) +
   geom_point(aes(color = cpu)) +
-  # geom_point(data = cumsum_og, aes(cumsum_carb, cpu, color = cpu), shape = 11) +
+  geom_point(data = cumsum_og, aes(cumsum_carb, cpu, color = cpu), shape = 11) +
+  geom_point(data = cumsum_noCC, aes(cumsum_carb, cpu, color = cpu), shape = 10) +
   scale_colour_gradient2(low = "forestgreen", mid = "yellow", high = "red", midpoint = 50) +
   scale_x_continuous(limits = c(0, 60000000),label=comma) +
   scale_y_continuous(limits = c(-150,220), expand = c(0,0)) +

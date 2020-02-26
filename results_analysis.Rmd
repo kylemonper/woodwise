@@ -15,16 +15,20 @@ library(tidyverse)
 
 ```{r, include = FALSE}
 
-opt_tie_break <- read_csv("opt_tie_break.csv")
-selected_sites <- read_csv("selected_sites.csv")
+relative_carb <- read_csv("relativ_carb.csv")
+counties <- read_csv("plot_county.csv") %>% 
+  select(ID, lat, lon, NAME)
 
 ```
 
 
 
 ```{r}
+price <- 200 ### this is the max we are willing to pay  per ton
+
 optimal_noCC <- relative_carb %>% 
-    filter(total_carbon > 0 & rxpackage != "031") %>% 
+    filter(total_carbon > 0 ) %>%     
+    filter(!rxpackage %in% c("032", "033")) %>% 
     mutate(value = (price * total_carbon) - total_cost) %>% 
     group_by(ID) %>% 
     filter(value > 0 &
