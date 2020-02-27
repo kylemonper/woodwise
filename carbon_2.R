@@ -708,6 +708,14 @@ char_pct <- 0
 # 
 # tmp_disc <- discount_all(test)
 
+
+
+###########################
+##### Run discount_all ####
+###########################
+
+decay_pct <- 1
+char_pct <- 0
 ### discount all packages
 ## this will take ~2 hours
 # Sys.time()
@@ -946,8 +954,6 @@ library(scales) # for comma in x axis
 
 ggplot(cumsum, aes(cumsum_carb, cpu)) +
   geom_point(aes(color = cpu)) +
-  geom_point(data = cumsum_og, aes(cumsum_carb, cpu, color = cpu), shape = 11) +
-  geom_point(data = cumsum_noCC, aes(cumsum_carb, cpu, color = cpu), shape = 10) +
   scale_colour_gradient2(low = "forestgreen", mid = "yellow", high = "red", midpoint = 50) +
   scale_x_continuous(limits = c(0, 60000000),label=comma) +
   scale_y_continuous(limits = c(-150,220), expand = c(0,0)) +
@@ -955,15 +961,30 @@ ggplot(cumsum, aes(cumsum_carb, cpu)) +
   theme(legend.position = "none") +
   labs(
     x = "Tons of Carbon",
-    y = "$/Ton of Carbon"
+    y = "$/Ton of Carbon",
+    title = "MCC (w/ CC)"
+  )
+
+ggplot(cumsum_noCC, aes(cumsum_carb, cpu)) +
+  geom_point(aes(color = cpu)) +
+  scale_colour_gradient2(low = "forestgreen", mid = "yellow", high = "red", midpoint = 50) +
+  scale_x_continuous(limits = c(0, 60000000),label=comma) +
+  scale_y_continuous(limits = c(-150,220), expand = c(0,0)) +
+  theme_minimal(base_size = 24) +
+  theme(legend.position = "none") +
+  labs(
+    x = "Tons of Carbon",
+    y = "$/Ton of Carbon",
+    title = "MCC (w/o CC)"
   )
 
 ### repeat for using rev
 optimal_rev <- relative_carb  %>% 
-  filter(relative_carb > 0) %>% 
+  filter(total_carbon > 0 & rxpackage != "031") %>% 
+  mutate(value = (price * total_carbon) - (total_cost - total_val)) %>% 
   group_by(ID) %>% 
-  filter(cpu_rev == min(cpu_rev)) %>% 
-  ungroup()
+  filter(value > 0 &
+           value == max(value))
 
 opt_tie_break_rev <- optimal_rev %>% 
   group_by(ID) %>% 
@@ -973,12 +994,15 @@ opt_tie_break_rev <- optimal_rev %>%
 cumsum_rev <- opt_tie_break_rev %>% 
   arrange(cpu_rev) %>% 
   mutate(cumsum_rev = cumsum(total_carbon))
+
+test <- opt_tie_break_rev %>% 
+  filter(owngrpcd == 40)
   
 ggplot(cumsum_rev, aes(cumsum_rev, cpu_rev)) +
   geom_point(aes(color = cpu), size = 2.5) +
   scale_colour_gradient2(low = "forestgreen", mid = "yellow", high = "red") +
-  scale_x_continuous(limits = c(-1000, 55000000), expand = c(0,0),label=comma) +
-  scale_y_continuous(limits = c(-10000,2200), expand = c(0,0)) +
+  scale_x_continuous(limits = c(-1000, 95000000), expand = c(0,0),label=comma) +
+  scale_y_continuous(limits = c(-1200,1500), expand = c(0,0)) +
   theme_minimal(base_size = 24) +
   theme(legend.position = "none") +
   labs(
@@ -1007,9 +1031,10 @@ ggplot(package_count, aes(as.factor(rxpackage), n)) +
 
 
 ##### get plot locations for mapping #####
-
+counties <- read_csv("plot_county.csv") %>% 
+  select(ID, lat, lon, NAME)
 cpu_locs <- left_join(opt_tie_break, counties)
-write_csv(cpu_locs, "cpu_locs.csv")
+#write_csv(cpu_locs, "cpu_locs.csv")
 # calculate the most common package per county and plot this
 
 
@@ -1034,9 +1059,91 @@ abate_25 <- cumsum %>%
 ### this function approximates taking the integral of points w/in an x-y coordinate system
 total_cost_25mt <- pracma::trapz(abate_25$cumsum_carb, abate_25$cpu)
 
+cpu_locs <- left_join(optimal, counties)
+
+
+#### Summary table #####
+summary_cc <- cpu_locs %>% 
+  group_by(NAME, owngrpcd) %>% 
+  summarise(
+    average_cpa = mean(relative_cost),
+    sd_cpa = sd(relative_cost),
+    avg_carbon_pa = mean(relative_carb),
+    sd_carbon = sd(relative_carb)
+  )
+
+rx_count <- cpu_locs %>% 
+  group_by(NAME, owngrpcd, rxpackage) %>% 
+  tally() %>% 
+  top_n(3, n)
+
+count_wide <- rx_count %>% 
+  spread(rxpackage, n)
+
+
+final_sum <- left_join(count_wide, summary_cc)
+
+#### again for no CC
+optimal_noCC <- relative_carb %>% 
+  filter(total_carbon > 0 ) %>%     
+  filter(!rxpackage %in% c("032", "033")) %>% 
+  mutate(value = (price * total_carbon) - total_cost) %>% 
+  group_by(ID) %>% 
+  filter(value > 0 &
+           value == max(value))
+
+
+cpu_locs_nocc <- left_join(optimal_noCC, counties)
+
+
+summary_nocc <- cpu_locs_nocc %>% 
+  group_by(NAME, owngrpcd) %>% 
+  summarise(
+    average_cpa = mean(relative_cost),
+    sd_cpa = sd(relative_cost),
+    avg_carbon_pa = mean(relative_carb),
+    sd_carbon = sd(relative_carb)
+  )
+
+rx_count_nocc <- cpu_locs_nocc %>% 
+  group_by(NAME, owngrpcd, rxpackage) %>% 
+  tally() %>% 
+  top_n(3, n)
+
+
+count_wide <- rx_count_nocc %>% 
+  spread(rxpackage, n)
+
+final_summary_nocc <- left_join(count_wide, summary_nocc)
 
 
 
 
+
+write_csv(final_sum, "summary_table_cc.csv")
+write_csv(final_summary_nocc, "summary_table_noCC.csv")
+
+
+
+plot_count_nocc <- cpu_locs_nocc %>% 
+  select(NAME, owngrpcd, ID) %>% 
+  distinct() %>% 
+  group_by(NAME, owngrpcd) %>% 
+  tally()
+write_csv(plot_count_nocc, "plot_count_nocc.csv")
+
+
+plot_count_nocc <- cpu_locs %>% 
+  select(NAME, owngrpcd, ID) %>% 
+  distinct() %>% 
+  group_by(NAME, owngrpcd) %>% 
+  tally()
+write_csv(plot_count_nocc, "plot_count_cc.csv")
+
+
+
+
+
+###### if revenue compare lack of net revenue as cost
 
 
