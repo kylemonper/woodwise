@@ -615,6 +615,10 @@ add_discounting = function(df){
   ## add a discounted column that is discounted by 0.05 
   # that is the cumulative sum for each year of discounted carbon
   
+  #### set value of chips to zero
+  plot_merch_diff$discount_chip_dpa <- 0
+  
+  
   plot_time_discounts <- plot_merch_diff %>% 
     # discounted carbon for each year
     # mutate(discount_carb = each_year/((1+0.05)^time)) %>% 
@@ -718,10 +722,10 @@ decay_pct <- 1
 char_pct <- 0
 ### discount all packages
 ## this will take ~2 hours
-# Sys.time()
-# all_discounted_FullDecay <- discount_all(plot_all)
-# Sys.time()
-# write_csv(all_discounted_FullDecay, "all_discounted_FullDecay.csv")
+Sys.time()
+all_discounted_FullDecay <- discount_all(plot_all)
+Sys.time()
+write_csv(all_discounted_FullDecay, "all_discounted_FullDecay.csv")
 
 all_discounted_FullDecay <- read_csv("all_discounted_FullDecay.csv")
 all_discounted_FullDecay$biosum_cond_id <- as.numeric(all_discounted_FullDecay$biosum_cond_id)
@@ -871,7 +875,7 @@ relative_carb <- incorp_base %>%
          cpu_rev = (total_cost-total_val)/total_carbon)
 
 ### last write: 2/25/2020
-#write_csv(relative_carb, "relativ_carb.csv")
+write_csv(relative_carb, "relativ_carb.csv")
 relative_carb <- read_csv("relativ_carb.csv")
 
 #####################
@@ -882,7 +886,7 @@ relative_carb <- read_csv("relativ_carb.csv")
 ### final step:
 ## we now have final discounted values for each package for this plot, now select the package with the lowest CPU
 
-price <- 200
+price <- 1000
 
 ## new method for selecting optimal (based on value of carbon)
   optimal <- relative_carb %>% 
