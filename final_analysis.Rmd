@@ -1,0 +1,371 @@
+---
+title: "Final_analysis"
+author: "AnnaClaire Marley"
+date: "2/27/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include = FALSE}
+library(tidyverse)
+```
+
+```{r}
+
+# total_carbon: total discounted carbon (not per acre)
+# discount_haul_chip: the discounted cost *per acre* of hauling chips
+# relative_carb: discounted carbon per acre
+
+# analysis on opt tie break and opt tie break nocc
+
+```
+
+```{r, include = FALSE}
+# for analyses on all plots
+  relative_carb <- read_csv("relativ_carb.csv") 
+# counties of all plots
+  counties <- read_csv("plot_county.csv") %>% 
+    select(ID, lat, lon, NAME)
+# for analyses on MCC plots  
+  opt_tie_break <- read_csv("opt_tie_break.csv") 
+#variant data and private or federal
+  all_data <- read_csv("all_data.csv")
+```
+
+```{r, echo = FALSE}
+# combine counties with opti_tie_Break
+
+opt_tie_break_counties <- left_join(counties, opt_tie_break, by = "ID") %>% 
+  filter(biosum_cond_id != "NA")
+
+```
+
+
+```{r, echo = FALSE}
+#  to get the optimal without clear cutting
+price <- 200 ### this is the max we are willing to pay  per ton
+
+optimal_noCC <- relative_carb %>% 
+    filter(total_carbon > 0 ) %>%     
+    filter(!rxpackage %in% c("032", "033")) %>% 
+    mutate(value = (price * total_carbon) - total_cost) %>% 
+    group_by(ID) %>% 
+    filter(value > 0 &
+             value == max(value))
+
+opt_tie_break_nocc <- optimal_noCC %>% 
+  group_by(ID) %>% 
+  sample_n(1) %>% 
+  ungroup()
+```
+
+
+# **Package Frequency**
+## With clear cutting as an option 
+```{r, echo = FALSE}
+# group by package and count package occurance
+package_count <- opt_tie_break %>% 
+  group_by(rxpackage) %>% 
+  tally()
+
+package_count$rxpackage <- factor(package_count$rxpackage, levels = package_count$rxpackage[order(-package_count$n)])
+
+# plot it
+ggplot(package_count, aes(as.factor(rxpackage), n)) +
+  geom_col() +
+  labs(
+    x = "Treatment Package ID", 
+    y = "Count"
+  ) +
+  scale_y_continuous(expand = c(0,0)) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+## Without clear cutting as an option 
+```{r, echo = FALSE}
+# group by package and count package occurance
+package_count_nocc <- opt_tie_break_nocc %>% 
+  group_by(rxpackage) %>% 
+  tally()
+
+package_count_nocc$rxpackage <- factor(package_count_nocc$rxpackage, levels = package_count_nocc$rxpackage[order(-package_count_nocc$n)])
+
+# plot it
+ggplot(package_count_nocc, aes(as.factor(rxpackage), n)) +
+  geom_col() +
+  labs(
+    x = "Treatment Package ID", 
+    y = "Count"
+  ) +
+  scale_y_continuous(expand = c(0,0)) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+
+# Compare carbon consequences of grow only vs thinning vs clear cut
+
+```{r, echo=FALSE}
+# assign names for different types of treatments
+opt_tie_break_counties$treatment_type = 0
+   opt_tie_break_counties$treatment_type = 
+     ifelse(opt_tie_break_counties$rxpackage %in% c("033","032"), 
+                                     "clear_cut", opt_tie_break_counties$treatment_type)
+   
+   opt_tie_break_counties$treatment_type = 
+     ifelse(opt_tie_break_counties$rxpackage == "031", 
+                                     "grow_only", opt_tie_break_counties$treatment_type)
+   
+   opt_tie_break_counties$treatment_type = 
+     ifelse(!(opt_tie_break_counties$rxpackage %in% c("033","032", "031")), 
+                                       "thinning", opt_tie_break_counties$treatment_type)
+
+```
+
+```{r, echo = FALSE}
+### plot the differences ####
+
+# boxplot of cost per unit carbon range
+ggplot(opt_tie_break_counties, aes(x = treatment_type, y = cpu)) +
+  geom_boxplot() +
+  labs(x = "Treatment Type",
+       y = "Cost per Ton of Carbon") +
+  theme_bw()
+
+# boxplot of cost per acre
+cost_plot <- opt_tie_break_counties %>% 
+  mutate(cpa = total_cost/acres) %>% 
+  ggplot(aes(x = treatment_type, y = cpa)) +
+    geom_boxplot() +
+    labs(x = "Treatment Type",
+         y = "Cost per Acre") +
+    theme_bw()
+
+cost_plot
+
+# boxplot of carbon stored per acre
+carbon_plot <- opt_tie_break_counties %>% 
+  mutate(carbon_pa = total_carbon/acres) %>% 
+  ggplot(aes(x = treatment_type, y = carbon_pa)) +
+    geom_boxplot() +
+    labs(x = "Treatment Type",
+         y = "Carbon Stored per Acre") +
+    theme_bw()
+carbon_plot
+```
+
+## How much carbon stored in the forest vs products
+
+```{r, echo = FALSE}
+## cum_discount_decay = chips
+## cum_discount_carb = discounted total stand carbon
+## cum_discount_merch = cummulative discounted merchantable
+
+portions <- opt_tie_break_counties %>% 
+  select(ID, rxpackage, NAME, acres, 
+         cum_discount_carb, cum_discount_merch,
+         total_discount_carb, cum_discount_decay) %>% 
+  mutate(ratio_stand_carb = cum_discount_carb/total_discount_carb) %>% 
+  mutate(ratio_merch_carb = cum_discount_merch/total_discount_carb) %>% 
+  mutate(ratio_chip_carb = cum_discount_decay/total_discount_carb)
+
+```
+
+```{r, echo = FALSE}
+# create a boxplot showing the differences in spread in ratios between merchatnable and stand carbon in general
+ratio_boxplot <- portions %>% 
+  select(ratio_stand_carb, ratio_merch_carb, ratio_chip_carb) %>% 
+  gather() %>% 
+  ggplot(aes(x = key, y = value)) +
+  geom_boxplot() +
+  labs(
+    y = "Ratio to Total Carbon",
+    x = ""
+  ) +
+ scale_x_discrete(labels = c('Chip Carbon', 'Merchantable Carbon','Stand Carbon')) +
+  theme_bw()
+ratio_boxplot
+
+```
+
+### without clear cutting as an option
+
+```{r, echo = FALSE}
+# opt_tie_break_nocc
+```
+
+```{r, echo = FALSE}
+## cum_discount_decay = chips
+## cum_discount_carb = discounted total stand carbon
+## cum_discount_merch = cummulative discounted merchantable
+
+portions_nocc <- opt_tie_break_nocc %>% 
+  select(ID, rxpackage, acres, 
+         cum_discount_carb, cum_discount_merch,
+         total_discount_carb, cum_discount_decay) %>% 
+  mutate(ratio_stand_carb = cum_discount_carb/total_discount_carb) %>% 
+  mutate(ratio_merch_carb = cum_discount_merch/total_discount_carb) %>% 
+  mutate(ratio_chip_carb = cum_discount_decay/total_discount_carb)
+
+```
+
+```{r, echo = FALSE}
+# create a boxplot showing the differences in spread in ratios between merchatnable and stand carbon in general
+ratio_boxplot <- portions_nocc %>% 
+  select(ratio_stand_carb, ratio_merch_carb, ratio_chip_carb) %>% 
+  gather() %>% 
+  ggplot(aes(x = key, y = value)) +
+  geom_boxplot() +
+  labs(
+    y = "Ratio to Total Carbon",
+    x = ""
+  ) +
+ scale_x_discrete(labels = c('Chip Carbon', 'Merchantable Carbon','Stand Carbon')) +
+  theme_bw()
+ratio_boxplot
+
+```
+
+## Allocation of costs per ton of carbon 
+```{r, echo = FALSE}
+
+# change the discounted costs to total discounted cost by multiplying by aces and then make cpu
+costs <- opt_tie_break_counties %>% 
+  select(ID, NAME, acres, rxpackage, discount_harvest, 
+         discount_haul_chip, discount_haul_merch, 
+         total_discount_carb, relative_carb, total_carbon) %>% 
+  mutate(harvest_cost = discount_harvest*acres) %>% 
+  mutate(haul_chip_cost = discount_haul_chip*acres) %>% 
+  mutate(haul_merch_cost = discount_haul_merch*acres) %>% 
+  mutate(cpu_harvest = harvest_cost/total_carbon) %>% 
+  mutate(cpu_haul_chip = haul_chip_cost/total_carbon) %>% 
+  mutate(cpu_haul_merch = haul_merch_cost/total_carbon)
+
+costs_spread <- costs %>% 
+  select(cpu_harvest, cpu_haul_chip, cpu_haul_merch) %>% 
+  gather() %>% 
+  ggplot(aes(x = key, y = value)) +
+  geom_boxplot() +
+  labs(
+    y = "Cost per Ton of Carbon",
+    x = "Cost Type"
+  ) +
+  theme_bw()
+  
+costs_spread
+```
+
+## Allocation of costs per unit by counties
+```{r, echo = FALSE}
+costs_mean <- costs %>% 
+  select(NAME, cpu_harvest, cpu_haul_chip, cpu_haul_merch) %>% 
+  gather(cost_type, cost, cpu_harvest:cpu_haul_merch) %>% 
+  group_by(NAME, cost_type) %>% 
+  summarize(mean_cost = mean(cost),
+            sd_cost = sd(cost)) %>% 
+  filter(NAME != "NA")
+
+# plot bar chart with error bars
+ggplot(costs_mean, aes(x = reorder(NAME, mean_cost), y = mean_cost, fill = cost_type)) +
+  geom_bar(position = "stack", stat = "identity") +
+  scale_x_discrete(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  coord_flip() +
+  labs(
+    x = "County",
+    y = "Average Cost per Ton of Carbon",
+    fill = "Cost Type"
+  ) +
+  scale_fill_discrete(labels = c("Harvest", "Hauling chips", "Hauling merchantable")) +
+  theme_bw()
+
+```
+
+## CPU and carbon stored across the different eco regions (variants)
+
+```{r, echo = FALSE}
+
+variants <- all_data %>% 
+  select(ID, fvs_variant, owngrpcd) %>% 
+  group_by(ID, fvs_variant, owngrpcd) %>% 
+  summarize()
+
+simple_plus <- opt_tie_break_counties %>% 
+  left_join(variants, by = "ID")
+
+```
+
+### Total disocunted carbon per acre stored by variant
+
+```{r, echo = FALSE}
+
+variant_carbon <- simple_plus %>% 
+  select(biosum_cond_id, ID, rxpackage, fvs_variant, owngrpcd, cpu, relative_carb,
+         total_discount_carb, acres, total_cost) 
+
+variant_boxplot <- variant_carbon %>% 
+  ggplot(aes(x = fvs_variant, y = total_discount_carb)) +
+  geom_boxplot() +
+  labs(
+    x = "FVS Variant",
+    y = "Total Discounted Carbon per Acre"
+  ) +
+  theme_bw()
+variant_boxplot
+
+```
+
+## CPU split by variant
+
+```{r, echo = FALSE}
+
+variant_cost_boxplot <- variant_carbon %>% 
+  ggplot(aes(x = fvs_variant, y = cpu)) +
+  geom_boxplot() +
+  labs(
+    x = "FVS Variant",
+    y = "Cost ($) per Ton of Carbon"
+  ) +
+  scale_y_continuous(limits = c(-750, 200)) +
+  theme_bw()
+
+variant_cost_boxplot
+
+```
+
+# CPU for federal and private land
+
+```{r, echo=FALSE}
+
+fed_priv <- variant_carbon %>% 
+  select(cpu, owngrpcd) %>% 
+  mutate(ownership = ifelse(owngrpcd == 40, "Private", "Federal"))
+
+ggplot(fed_priv, aes(x = ownership, y = cpu)) +
+  geom_boxplot() +
+  labs(
+    x = "Ownership",
+    y = "Cost per Ton of Carbon"
+  ) + 
+  scale_y_continuous(limits = c(-750, 200)) +
+  theme_bw()
+  
+
+```
+
+
+
+
+
+
+
+
+
+
+
