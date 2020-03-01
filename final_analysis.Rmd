@@ -360,7 +360,54 @@ ggplot(fed_priv, aes(x = ownership, y = cpu)) +
 ```
 
 
+## visualization of differences in methods
+```{r}
+all_data <- read_csv("all_data.csv")
+source("discount_all_new.R")
+source("old_discount_method.R") 
 
+decay_pct <- 1
+char_pct <- 0
+
+#### decay rates for merch and non-merch
+merch_decay <- read_csv("softwood_lumber_decay.csv")
+non_merch <- read_delim("chip_pathways.txt", delim = ",")
+
+
+  
+test <- add_discounting_old(all_data, 34, "018")
+base <- add_discounting_old(all_data, 34, "031")
+  
+
+### LEGEND:
+# grow only is blue
+# red/brown : merch and chip carbon
+# green is total stand
+# dashed: total overall carbon
+ggplot(test, aes(x = time, y = cum_discount_carb)) +
+  geom_line(color = "green") +
+  geom_line(aes(x = time, y = cum_discount_merch), color = "red") +
+  geom_line(aes(x = time, y = cum_discount_decay), color = "brown") +
+  geom_line(aes(x = time, y = total_discount_carb), linetype = "dashed") +
+  geom_line(data = base, aes(time, total_discount_carb), color = "blue") +
+  labs(title = "old method")
+
+
+## now repeat with same plot/ package using the new method:
+df_18 <- add_discounting_new_long(all_data, 34, "018")
+df_go <- add_discounting_new_long(all_data, 34, "031")
+
+
+
+# same legend
+ggplot(df_18, aes(x = time, y = cum_discount_carb)) +
+  geom_line(color = "green") +
+  geom_line(aes(x = time, y = cum_discount_merch), color = "red") +
+  geom_line(aes(x = time, y = cum_discount_decay), color = "brown") +
+  geom_line(aes(x = time, y = total_discount_carb), linetype = "dashed") +
+  geom_line(data = df_go, aes(x = time, y = total_discount_carb), color = "blue") +
+  labs(title = "new method")
+```
 
 
 

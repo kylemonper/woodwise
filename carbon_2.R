@@ -393,7 +393,7 @@ plot_all$time <- as.numeric(plot_all$time)
 clean_harvest_data <- function(column) {
   
   plot_all[,column] <-  if_else(is.na(plot_all$complete_cpa), 0, unlist(plot_all[,column]))
-  plot_all[,column] <- if_else(unlist(plot_all[column]) > 0 & plot_all$section == "pre" ,0, unlist(plot_all[,column]))
+  plot_all[,column] <- if_else(unlist(plot_all[column]) > 0 & plot_all$section == "post" ,0, unlist(plot_all[,column]))
   
   return(unlist(plot_all[,column]))
   
@@ -427,10 +427,10 @@ add_harvest_decay <- function(df) {
   
   ### if a harvest occured, start a time count of 1, if not == NA
   merch_time <- df %>% 
-    mutate(cycle1_merch = if_else(merch_carbon > 0 & rxcycle == 1 & section == "post", 1, NA_real_),
-           cycle2_merch = if_else(merch_carbon > 0 & rxcycle == 2 & section == "post", 1, NA_real_),
-           cycle3_merch = if_else(merch_carbon > 0 & rxcycle == 3 & section == "post", 1, NA_real_),
-           cycle4_merch = if_else(merch_carbon > 0 & rxcycle == 4 & section == "post", 1, NA_real_))
+    mutate(cycle1_merch = if_else(merch_carbon > 0 & rxcycle == 1 & section == "pre", 1, NA_real_),
+           cycle2_merch = if_else(merch_carbon > 0 & rxcycle == 2 & section == "pre", 1, NA_real_),
+           cycle3_merch = if_else(merch_carbon > 0 & rxcycle == 3 & section == "pre", 1, NA_real_),
+           cycle4_merch = if_else(merch_carbon > 0 & rxcycle == 4 & section == "pre", 1, NA_real_))
   
   ## next step: how to add +1 to each row to have "time since harvest"
   cum.na <- function(x){
@@ -495,10 +495,10 @@ add_chip_decay <- function(df, pathway, decay_pct){
   
   ### if a harvest occured, start a time count of 1, if not == NA
   chip_time <- fraction %>% 
-    mutate(cycle1_chip = if_else(chip_carbon > 0 & rxcycle == 1 & section == "post", 1, NA_real_),
-           cycle2_chip = if_else(chip_carbon > 0 & rxcycle == 2 & section == "post", 1, NA_real_),
-           cycle3_chip = if_else(chip_carbon > 0 & rxcycle == 3 & section == "post", 1, NA_real_),
-           cycle4_chip = if_else(chip_carbon > 0 & rxcycle == 4 & section == "post", 1, NA_real_))
+    mutate(cycle1_chip = if_else(chip_carbon > 0 & rxcycle == 1 & section == "pre", 1, NA_real_),
+           cycle2_chip = if_else(chip_carbon > 0 & rxcycle == 2 & section == "pre", 1, NA_real_),
+           cycle3_chip = if_else(chip_carbon > 0 & rxcycle == 3 & section == "pre", 1, NA_real_),
+           cycle4_chip = if_else(chip_carbon > 0 & rxcycle == 4 & section == "pre", 1, NA_real_))
   
   ## next step: how to add +1 to each row to have "time since harvest"
   cum.na <- function(x){
@@ -619,7 +619,7 @@ add_discounting = function(df){
   plot_merch_diff$discount_chip_dpa <- 0
   
   
-  plot_time_discounts <- plot_merch_diff %>% 
+  plot_time_discounts <- no_na %>% 
     # discounted carbon for each year
     # mutate(discount_carb = each_year/((1+0.05)^time)) %>% 
     # cumulative discounted carbon
@@ -634,7 +634,10 @@ add_discounting = function(df){
     mutate(discount_harvest = harvest_onsite_cpa/((1+.05)^time)) %>% 
     mutate(discount_cost = discount_haul_chip + discount_haul_merch + discount_harvest) %>% 
     mutate(discount_cost = replace_na(discount_cost,0)) %>% 
-    mutate(cum_discount_cost = cumsum(discount_cost)) %>% 
+    mutate(cum_discount_cost = cumsum(discount_cost),
+           cum_disc_haul_merch = cumsum(discount_haul_merch),
+           cum_disc_haul_chip = cumsum(discount_haul_chip),
+           cum_disc_harvest = cumsum(discount_harvest))%>% 
     #discouneted revenue
     mutate(discount_merch_dpa = merch_val_dpa/((1+0.05)^time)) %>% 
     mutate(discount_chip_dpa = chip_val_dpa/((1+0.05)^time)) %>% 
@@ -645,7 +648,7 @@ add_discounting = function(df){
   ## the information we want to end up with for each distinct plot and package
   final_cumulative <- plot_time_discounts %>% 
     filter(time == 31) %>% 
-    select(biosum_cond_id, ID, acres, rxpackage, cum_discount_carb, cum_discount_merch, cum_discount_cost, discount_haul_chip , discount_haul_merch, discount_harvest, total_discount_carb, cum_discount_decay, cum_discount_biochar, cum_discount_val)
+    select(biosum_cond_id, ID, acres, rxpackage, cum_discount_carb, cum_discount_merch, cum_discount_cost, cum_disc_haul_chip , cum_disc_haul_merch, cum_disc_harvest , total_discount_carb, cum_discount_decay, cum_discount_biochar, cum_discount_val)
   
   return(final_cumulative)
 }
@@ -681,7 +684,7 @@ discount_all <- function(df) {
       plot_package <- plot %>% 
         filter(rxpackage == pkg) 
       
-      discounted <- add_discounting(plot_package) 
+      discounted <- add_discounting_new(plot_package) 
       
       final_plot <- rbind(final_plot, discounted)
       
@@ -704,14 +707,6 @@ discount_all <- function(df) {
   
 }
 
-decay_pct <- 1
-char_pct <- 0
-
-# test <- plot_all %>% 
-#   filter(ID == 11)
-# 
-# tmp_disc <- discount_all(test)
-
 
 
 ###########################
@@ -720,14 +715,27 @@ char_pct <- 0
 
 decay_pct <- 1
 char_pct <- 0
+
+# test <- plot_all %>%
+#   filter(ID == 1011)
+# 
+# tmp_disc <- discount_all(test)
+
 ### discount all packages
 ## this will take ~2 hours
+# Sys.time()
+# all_discounted_FullDecay <- discount_all(plot_all)
+# Sys.time()
+# write_csv(all_discounted_FullDecay, "all_discounted_FullDecay.csv")
+
+
 Sys.time()
 all_discounted_FullDecay <- discount_all(plot_all)
 Sys.time()
-write_csv(all_discounted_FullDecay, "all_discounted_FullDecay.csv")
+write_csv(all_discounted_FullDecay, "all_discounted_FullDecay_new.csv")
+beepr::beep(3)
 
-all_discounted_FullDecay <- read_csv("all_discounted_FullDecay.csv")
+all_discounted_FullDecay <- read_csv("all_discounted_FullDecay_new.csv")
 all_discounted_FullDecay$biosum_cond_id <- as.numeric(all_discounted_FullDecay$biosum_cond_id)
 
 ############################
@@ -886,7 +894,7 @@ relative_carb <- read_csv("relativ_carb.csv")
 ### final step:
 ## we now have final discounted values for each package for this plot, now select the package with the lowest CPU
 
-price <- 1000
+price <- 200
 
 ## new method for selecting optimal (based on value of carbon)
   optimal <- relative_carb %>% 
@@ -984,7 +992,7 @@ ggplot(cumsum_noCC, aes(cumsum_carb, cpu)) +
 
 ### repeat for using rev
 optimal_rev <- relative_carb  %>% 
-  filter(total_carbon > 0 & rxpackage != "031") %>% 
+  filter(total_carbon > 0 & !rxpackage %in% c("031", "032", "033")) %>% 
   mutate(value = (price * total_carbon) - (total_cost - total_val)) %>% 
   group_by(ID) %>% 
   filter(value > 0 &
@@ -1003,10 +1011,11 @@ test <- opt_tie_break_rev %>%
   filter(owngrpcd == 40)
   
 ggplot(cumsum_rev, aes(cumsum_rev, cpu_rev)) +
-  geom_point(aes(color = cpu), size = 2.5) +
-  scale_colour_gradient2(low = "forestgreen", mid = "yellow", high = "red") +
+  geom_point() +
+  #scale_colour_gradient2(low = "forestgreen", mid = "yellow", high = "red") +
   scale_x_continuous(limits = c(-1000, 95000000), expand = c(0,0),label=comma) +
-  scale_y_continuous(limits = c(-1200,1500), expand = c(0,0)) +
+  scale_y_continuous(limits = c(-1200,400), expand = c(0,0)) +
+  geom_hline(yintercept = 0) +
   theme_minimal(base_size = 24) +
   theme(legend.position = "none") +
   labs(
