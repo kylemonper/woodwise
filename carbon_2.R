@@ -55,16 +55,25 @@ odbcCloseAll()
 conn <- odbcConnectAccess2007("master.mdb")
 plot_m <- sqlFetch(conn, "plot", as.is = T)
 cond_m <- sqlFetch(conn, "cond", as.is = T)
+ftype <- sqlFetch(conn, "CEC_ftype", as.is = T)
 odbcCloseAll()
 
+names(ftype)[1] <- "fortypcd"
+
+type <- ftype %>% 
+  select(fortypcd, MEANING)
 
 plot_sel <- plot_m %>%
   select(biosum_plot_id, lat, lon, elev)
 
 cond_sel <- cond_m %>%
-  select(biosum_cond_id, biosum_plot_id)
+  select(biosum_cond_id, biosum_plot_id, fortypcd) %>% 
+  left_join(type)
+
+
 
 cond_lat_lon <- left_join(cond_sel, plot_sel)
+
 
 
 ##############################
@@ -1131,7 +1140,51 @@ final_summary_nocc <- left_join(count_wide, summary_nocc)
 
 
 
+all_data <- read_csv("all_data.csv")
+source("discount_all_new.R")
+source("old_discount_method.R") 
 
+decay_pct <- 1
+char_pct <- 0
+
+#### decay rates for merch and non-merch
+merch_decay <- read_csv("softwood_lumber_decay.csv")
+non_merch <- read_delim("chip_pathways.txt", delim = ",")
+
+
+
+test <- add_discounting_old(all_data, 34, "018")
+base <- add_discounting_old(all_data, 34, "031")
+
+
+### LEGEND:
+# grow only is blue
+# red/brown : merch and chip carbon
+# green is total stand
+# dashed: total overall carbon
+ggplot(test, aes(x = time, y = cum_discount_carb)) +
+  geom_line(color = "green") +
+  geom_line(aes(x = time, y = cum_discount_merch), color = "red") +
+  geom_line(aes(x = time, y = cum_discount_decay), color = "brown") +
+  geom_line(aes(x = time, y = total_discount_carb), linetype = "dashed") +
+  geom_line(data = base, aes(time, total_discount_carb), color = "blue") +
+  labs(title = "old method")
+
+
+## now repeat with same plot/ package using the new method:
+df_18 <- add_discounting_new_long(all_data, 34, "018")
+df_go <- add_discounting_new_long(all_data, 34, "031")
+
+
+
+# same legend
+ggplot(df_18, aes(x = time, y = cum_discount_carb)) +
+  geom_line(color = "green") +
+  geom_line(aes(x = time, y = cum_discount_merch), color = "red") +
+  geom_line(aes(x = time, y = cum_discount_decay), color = "brown") +
+  geom_line(aes(x = time, y = total_discount_carb), linetype = "dashed") +
+  geom_line(data = df_go, aes(x = time, y = total_discount_carb), color = "blue") +
+  labs(title = "new method")
 
 write_csv(final_sum, "summary_table_cc.csv")
 write_csv(final_summary_nocc, "summary_table_noCC.csv")
