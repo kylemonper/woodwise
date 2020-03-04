@@ -21,9 +21,8 @@ counties <- read_csv("plot_county.csv") %>%
 
 ```
 
-
-
-```{r}
+```{r, include = FALSE}
+# calculate optimal packages without clear cutting as an option
 price <- 200 ### this is the max we are willing to pay  per ton
 
 optimal_noCC <- relative_carb %>% 
@@ -40,8 +39,8 @@ opt_tie_break_nocc <- optimal_noCC %>%
   ungroup()
 ```
 
-
 # **Package Frequency**
+## With clear cutting as an option 
 ```{r, echo = FALSE}
 # group by package and count package occurance
 package_count <- opt_tie_break %>% 
@@ -64,10 +63,31 @@ ggplot(package_count, aes(as.factor(rxpackage), n)) +
 
 ```
 
+## Without clear cutting as an option 
+```{r, echo = FALSE}
+# group by package and count package occurance
+package_count_nocc <- opt_tie_break_nocc %>% 
+  group_by(rxpackage) %>% 
+  tally()
+
+package_count_nocc$rxpackage <- factor(package_count_nocc$rxpackage, levels = package_count_nocc$rxpackage[order(-package_count_nocc$n)])
+
+# plot it
+ggplot(package_count_nocc, aes(as.factor(rxpackage), n)) +
+  geom_col() +
+  labs(
+    x = "Treatment Package ID", 
+    y = "Count"
+  ) +
+  scale_y_continuous(expand = c(0,0)) +
+  theme_bw() +
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
 
 # **County level analsyes**
 
-Average cost per acre by county
+## Average cost per acre by county
 ```{r, echo = FALSE}
 ## decay = chips
 ## cum_discount_carb = discounted total stand carbon
