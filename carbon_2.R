@@ -725,7 +725,7 @@ char_pct <- 0
 Sys.time()
 all_discounted_FullDecay <- discount_all(plot_all)
 Sys.time()
-write_csv(all_discounted_FullDecay, "all_discounted_FullDecay.csv")
+write_csv(all_discounted_FullDecay, "all_discounted_FullDecay_nochip.csv")
 
 all_discounted_FullDecay <- read_csv("all_discounted_FullDecay.csv")
 all_discounted_FullDecay$biosum_cond_id <- as.numeric(all_discounted_FullDecay$biosum_cond_id)
@@ -875,7 +875,7 @@ relative_carb <- incorp_base %>%
          cpu_rev = (total_cost-total_val)/total_carbon)
 
 ### last write: 2/25/2020
-write_csv(relative_carb, "relativ_carb.csv")
+write_csv(relative_carb, "relativ_carb_no_chip.csv")
 relative_carb <- read_csv("relativ_carb.csv")
 
 #####################
