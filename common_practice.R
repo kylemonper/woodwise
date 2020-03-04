@@ -1,5 +1,6 @@
 library(tidyverse)
 library(sf)
+library(stringr)
 
 ####################################################################
 # first perform a spatial join of plot locations into supersections#
@@ -21,7 +22,6 @@ plot_id_ss <- plot_loc_ss %>%
   rename(Supersection = SSection)
 
 
-###############################################################
 # now need to join supersection by tree species
 ##################################################
 # read in the files
@@ -69,4 +69,55 @@ area_forest_false_b <- area_forest %>%
   filter(result == "FALSE") %>% 
   group_by(Associated.Species) %>% 
   tally()
+
+
+
+# now need to join supersection by tree species
+area <- read_csv("assessment_area_data.csv")
+Ca_areas <- area %>% 
+  filter(Supersection %in% plot_id_ss$SSection & Site.Class %in% c("High", "All")) %>% 
+  select(ss = Supersection, aa = Assessment.Area, species = Associated.Species, class = Site.Class, cp = `Common.Practice.-.Above.Ground.Carbon.Mean.(Metric.Tonnes.CO2-equivalent)`) %>% 
+  mutate(species = tolower(species),
+         cp_mt = cp *(12/44))
+
+forest_type <- read_csv("plot_loc.csv") %>% 
+  mutate(ftype = tolower(MEANING)) %>% 
+  left_join(plot_id_ss) %>% 
+  select(ID, SS = SSection, ftype) %>% 
+  mutate(ftype = str_replace(ftype, "-", " "),
+         ftype = str_replace(ftype, "coast live oak", "live oak"),
+         ftype = str_replace(ftype, "canyon live oak", "live oak"),
+         ftype = str_replace(ftype, "oregon live oak", "live oak"))
+
+ftypes <- unique(forest_type$SS)
+
+
+results <- NULL
+for (i in 1:length(ftypes)) {
+  sub_type <- forest_type %>% 
+    filter(SS == ftypes[i])
+  
+  sub_area <- Ca_areas %>% 
+    filter(ss == ftypes[i])
+  
+  test <- vector()
+  for (j in 1:nrow(sub_type)) {
+    test[j] <- sub_area %>% 
+      filter(str_detect(species, paste(sub_type$ftype[j]))) %>% 
+      select(cp_mt) %>% 
+      as.numeric()
+    
+  }
+  
+  sub_type$cp <- test
+  
+  results <- bind_rows(results, sub_type)
+  
+}
+
+
+
+
+
+
 
