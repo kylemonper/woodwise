@@ -1,6 +1,7 @@
 library(openxlsx)
 library(tidyverse)
 library(sf)
+library(stringr)
 
 ####################################################################
 # first perform a spatial join of plot locations into supersections#
@@ -23,7 +24,12 @@ plot_id_ss <- plot_loc_ss %>%
 
 ###############################################################
 
-# now need to join supersection by tree species
-area<- read_csv("assessment_area_data.csv")
 
-forest_type <- read_csv("plot_loc.csv")
+
+
+
+
+
+
+
+
