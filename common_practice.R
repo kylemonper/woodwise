@@ -7,19 +7,23 @@ library(sf)
 ####################################################################
 
 # read in the shapefles
-supersections_sub <- read_sf("spatial_data", layer = "supersections_subset_b")
+supersections <- read_sf("spatial_data", layer = "Supersections_5_1_15")
 plot_loc_geom <- read_sf("spatial_data", layer = "plot_loc")
 
 # make supersections have the same crs as plot locations
-st_crs(supersections_sub) = 4326
-
-plot(supersections_sub)
-plot(plot_loc_geom)
-
+supersections = st_transform(supersections, 4326)
 
 # join the supersecon to the points
-plot_loc_ss <- st_join(plot_loc_geom, supersections_sub)
+plot_loc_ss <- st_join(plot_loc_geom, supersections, left = FALSE)
 
+#plot id and supersection
+plot_id_ss <- plot_loc_ss %>% 
+  select(ID, SSection)
+
+
+###############################################################
+
+# now need to join supersection by tree species
 area<- read_csv("assessment_area_data.csv")
 
 forest_type <- read_csv("plot_loc.csv")
