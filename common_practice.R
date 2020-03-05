@@ -43,14 +43,32 @@ area_trees <- area_need %>%
   group_by(Associated.Species) %>% 
   tally()
 
-# combine datafames and mutate new column to say true if words in meaning appear in associated species
+# combine datafames 
 area_forest <- forest_type %>% 
   select(ID, MEANING) %>% 
   left_join(plot_id_ss) %>% 
-  left_join(area_need, by = "Supersection") %>% 
-  mutate(result=str_detect(Associated.Species, gsub(" ", "|", MEANING)))
+  left_join(area_need, by = "Supersection") 
 
+# clean the dataset
+# mutate new column to say true if words in meaning appear in associated species
+  
+forest_match <- area_forest %>% 
+  mutate(MEANING = gsub("-", " ", MEANING)) %>% 
+  mutate(result=str_detect(Associated.Species, gsub(" ", "|", MEANING))) %>% 
+  select(ID, Supersection, MEANING, Associated.Species, result, carbon_metric_tons,
+         `Common.Practice.-.Above.Ground.Carbon.Mean.(Metric.Tonnes.CO2-equivalent)`)
 
+## false areas
+area_forest_false <- area_forest %>% 
+  filter(result == "FALSE") 
+
+forest_match_false <- forest_match %>% 
+  filter(result == "FALSE") 
+ 
+area_forest_false_b <- area_forest %>% 
+  filter(result == "FALSE") %>% 
+  group_by(Associated.Species) %>% 
+  tally()
 
 
 
