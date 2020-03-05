@@ -76,13 +76,13 @@ forest_clean$MEANING2  = ifelse(forest_clean$MEANING ==
                                 "coast live oak",
                                 "live oak", forest_clean$MEANING2)
 forest_clean$MEANING2  = ifelse(forest_clean$MEANING == 
-                                "interior",
+                                "interior live oak",
                                 "live oak", forest_clean$MEANING2)
 forest_clean$MEANING2  = ifelse(forest_clean$MEANING == 
                                 "miscellaneous western softwoods",
                                 "douglas fir", forest_clean$MEANING2)
 forest_clean$MEANING2  = ifelse(forest_clean$MEANING == 
-                                  "pinyon | juniper woodland",
+                                "pinyon | juniper woodland",
                                 "pinyon", forest_clean$MEANING2)
 forest_clean$MEANING2  = ifelse(forest_clean$MEANING == 
                                 "monterey pine",
@@ -115,10 +115,20 @@ forest_match_true_tally <- forest_match %>%
   group_by(MEANING2, result) %>% 
   tally()
 
-## false
-forest_match_false <- forest_match %>% 
-  filter(result == "FALSE") 
+## FAlse areas tally
+forest_false <- forest_match_true_tally %>% 
+  filter(result == "FALSE")
 
+# plots not chosen 
+plots <- forest_match %>% 
+  group_by(ID, result) %>% 
+  tally() %>% 
+  filter(result == "TRUE")
+
+### missing plots
+plots_missing <- as.data.frame(setdiff(1:2289, plots$ID)) %>% 
+  rename(ID = "setdiff(1:2289, plots$ID)")
+# %>% left_join(forest_match, by = "ID")
 
 ######################
 # Kyle version #
