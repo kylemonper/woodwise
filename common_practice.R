@@ -126,9 +126,24 @@ plots <- forest_match %>%
   filter(result == "TRUE")
 
 ### missing plots
+# assign missing plots to the highest common practice to be conservative
 plots_missing <- as.data.frame(setdiff(1:2289, plots$ID)) %>% 
-  rename(ID = "setdiff(1:2289, plots$ID)")
-# %>% left_join(forest_match, by = "ID")
+  rename(ID = "setdiff(1:2289, plots$ID)") %>% 
+  mutate(species = "no_species") %>% 
+  left_join(forest_match, by = "ID") %>% 
+  select(ID, Supersection, carbon_metric_tons) %>% 
+  group_by(ID) %>% 
+  filter(carbon_metric_tons == max(carbon_metric_tons))
+
+## final dataframe to feed back into our model
+
+carb_base <- forest_match_true %>% 
+  select(ID, Supersection, carbon_metric_tons) %>% 
+  bind_rows(plots_missing) %>% 
+  arrange(ID) %>% 
+  group_by(ID) %>% 
+  filter(carbon_metric_tons == max(carbon_metric_tons))
+
 
 ######################
 # Kyle version #
