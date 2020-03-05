@@ -31,6 +31,7 @@ forest_type <- read_csv("plot_loc.csv")
 
 # pair down and convert co2e to carbon
 area_need <- area %>% 
+  filter(Site.Class == "High" | Site.Class == "All") %>% 
   select(Supersection, Associated.Species, 
          cp = `Common.Practice.-.Above.Ground.Carbon.Mean.(Metric.Tonnes.CO2-equivalent)`) %>% 
   mutate(carbon_metric_tons = cp*(12/44))
@@ -51,31 +52,64 @@ area_forest <- forest_type %>%
   left_join(area_need, by = "Supersection") 
 
 # clean the dataset
-
 forest_clean <- area_forest %>% 
   mutate(MEANING = gsub("-", " ", MEANING),
-         MEANING = tolower(MEANING)) %>% 
+         MEANING = tolower(MEANING),
+         MEANING = gsub("/", "|", MEANING)) %>% 
   mutate(Associated.Species = tolower(Associated.Species)) 
 
-# add in the fixing of words 
+# fixing species wording to match
 forest_clean$MEANING2 = 0
-forest_clean$MEANING2  = ifelse(forest_clean$MEANING == "california white oak (valley oak)",
+forest_clean$MEANING2  = ifelse(forest_clean$MEANING == 
+                                "california white oak (valley oak)",
                                 "white oak", forest_clean$MEANING)
-forest_clean$MEANING2  = ifelse(forest_clean$MEANING == "cercocarpus (mountain brush) woodland",
-                                "cercocarpus (mountain brush)", forest_clean$MEANING2)
-forest_clean$MEANING2  = ifelse(forest_clean$MEANING == "canyon live oak",
-                                "california live oak", forest_clean$MEANING2)
+forest_clean$MEANING2  = ifelse(forest_clean$MEANING == 
+                                "cercocarpus (mountain brush) woodland",
+                                "cercocarpus", forest_clean$MEANING2)
+forest_clean$MEANING2  = ifelse(forest_clean$MEANING == 
+                                "canyon live oak",
+                                "live oak", forest_clean$MEANING2)
+forest_clean$MEANING2  = ifelse(forest_clean$MEANING == 
+                                "oregon live oak",
+                                "live oak", forest_clean$MEANING2)
+forest_clean$MEANING2  = ifelse(forest_clean$MEANING == 
+                                "coast live oak",
+                                "live oak", forest_clean$MEANING2)
+forest_clean$MEANING2  = ifelse(forest_clean$MEANING == 
+                                "interior",
+                                "live oak", forest_clean$MEANING2)
+forest_clean$MEANING2  = ifelse(forest_clean$MEANING == 
+                                "miscellaneous western softwoods",
+                                "douglas fir", forest_clean$MEANING2)
+forest_clean$MEANING2  = ifelse(forest_clean$MEANING == 
+                                  "pinyon | juniper woodland",
+                                "pinyon", forest_clean$MEANING2)
+forest_clean$MEANING2  = ifelse(forest_clean$MEANING == 
+                                "monterey pine",
+                                "pine", forest_clean$MEANING2)
+forest_clean$MEANING2  = ifelse(forest_clean$MEANING == 
+                                "other hardwoods",
+                                "white fir", forest_clean$MEANING2)
+forest_clean$MEANING2  = ifelse(forest_clean$MEANING == 
+                                "juniper woodland",
+                                "juniper", forest_clean$MEANING2)
 
 
 # mutate new column to say true if words in meaning appear in associated species 
 forest_match <- forest_clean %>% 
-  mutate(result=str_detect(MEANING2, gsub(",", "|", Associated.Species))) %>% 
+  mutate(result=str_detect(Associated.Species, MEANING2)) %>% 
   select(ID, Supersection, MEANING2, Associated.Species, result, 
          carbon_metric_tons, cp)
+
+
+######################
+# Analyze the output #
+#####################
 
 ## true areas
 forest_match_true <- forest_match %>% 
   filter(result == "TRUE") 
+
 ## true areas_tally
 forest_match_true_tally <- forest_match %>% 
   group_by(MEANING2, result) %>% 
@@ -85,12 +119,10 @@ forest_match_true_tally <- forest_match %>%
 forest_match_false <- forest_match %>% 
   filter(result == "FALSE") 
 
-need_to_fix <- as.data.frame(unique(forest_match_false$MEANING2))
 
-
-# should be 2,289 plots 
-
-
+######################
+# Kyle version #
+#####################
 
 # now need to join supersection by tree species
 area <- read_csv("assessment_area_data.csv")
