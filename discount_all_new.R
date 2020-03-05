@@ -99,7 +99,7 @@ add_discounting_new <- function(df) {
     # discounted cost
     mutate(discount_haul_merch = haul_merch_cpa/((1+0.05)^time)) %>% 
     mutate(discount_haul_chip = haul_chip_cpa/((1+0.05)^time)) %>% 
-    mutate(discount_harvest = harvest_onsite_cpa/((1+.05)^time)) %>% 
+    mutate(discount_harvest = harvest_onsite_cpa/((1+0.05)^time)) %>% 
     mutate(discount_cost = discount_haul_chip + discount_haul_merch + discount_harvest) %>% 
     mutate(discount_cost = replace_na(discount_cost,0)) %>% 
     mutate(cum_discount_cost = cumsum(discount_cost),
