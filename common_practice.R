@@ -144,6 +144,8 @@ carb_base <- forest_match_true %>%
   group_by(ID) %>% 
   filter(carbon_metric_tons == max(carbon_metric_tons))
 
+ids_missing <- setdiff(1:2289, carb_base$ID)
+  
 
 ######################
 # Kyle version #
