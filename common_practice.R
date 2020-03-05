@@ -21,19 +21,18 @@ plot_id_ss <- plot_loc_ss %>%
   select(ID, SSection) %>% 
   rename(Supersection = SSection)
 
-###################################################
+
 # now need to join supersection by tree species
 ##################################################
-
 # read in the files
 area<- read_csv("assessment_area_data.csv")
 forest_type <- read_csv("plot_loc.csv")
 
 # pair down and convert co2e to carbon
 area_need <- area %>% 
-  select(Supersection, Associated.Species, 
-         cp = `Common.Practice.-.Above.Ground.Carbon.Mean.(Metric.Tonnes.CO2-equivalent)`) %>% 
-  mutate(carbon_metric_tons = cp*(12/44))
+  select(Supersection, Associated.Species, `Common.Practice.-.Above.Ground.Carbon.Mean.(Metric.Tonnes.CO2-equivalent)`) %>% 
+  mutate(carbon_metric_tons =
+           `Common.Practice.-.Above.Ground.Carbon.Mean.(Metric.Tonnes.CO2-equivalent)`*(12/44))
 
 # check what different tree species we have
 forest_look <- forest_type %>% 
@@ -51,50 +50,27 @@ area_forest <- forest_type %>%
   left_join(area_need, by = "Supersection") 
 
 # clean the dataset
+# mutate new column to say true if words in meaning appear in associated species
+  
+forest_match <- area_forest %>% 
+  mutate(MEANING = gsub("-", " ", MEANING)) %>% 
+  mutate(result=str_detect(Associated.Species, gsub(" ", "|", MEANING))) %>% 
+  select(ID, Supersection, MEANING, Associated.Species, result, carbon_metric_tons,
+         `Common.Practice.-.Above.Ground.Carbon.Mean.(Metric.Tonnes.CO2-equivalent)`)
 
-forest_clean <- area_forest %>% 
-  mutate(MEANING = gsub("-", " ", MEANING),
-         MEANING = tolower(MEANING)) %>% 
-  mutate(Associated.Species = tolower(Associated.Species)) 
- 
-# add in the fixing of words 
-forest_clean$MEANING2 = 0
-forest_clean$MEANING2  = ifelse(forest_clean$MEANING == "california white oak (valley oak)",
-                       "white oak", forest_clean$MEANING)
-forest_clean$MEANING2  = ifelse(forest_clean$MEANING == "cercocarpus (mountain brush) woodland",
-                                "cercocarpus (mountain brush)", forest_clean$MEANING2)
-forest_clean$MEANING2  = ifelse(forest_clean$MEANING == "canyon live oak",
-                                "california live oak", forest_clean$MEANING2)
-                  
-
-# mutate new column to say true if words in meaning appear in associated species 
-  forest_match <- forest_clean %>% 
-    mutate(result=str_detect(MEANING2, gsub(",", "|", Associated.Species))) %>% 
-    select(ID, Supersection, MEANING2, Associated.Species, result, 
-           carbon_metric_tons, cp)
-
-## true areas
-  forest_match_true <- forest_match %>% 
-    filter(result == "TRUE") 
-## true areas_tally
-forest_match_true_tally <- forest_match %>% 
-  group_by(MEANING2, result) %>% 
-  tally()
-
-## false
-forest_match_false <- forest_match %>% 
+## false areas
+area_forest_false <- area_forest %>% 
   filter(result == "FALSE") 
 
-need_to_fix <- as.data.frame(unique(forest_match_false$MEANING2))
+forest_match_false <- forest_match %>% 
+  filter(result == "FALSE") 
+ 
+area_forest_false_b <- area_forest %>% 
+  filter(result == "FALSE") %>% 
+  group_by(Associated.Species) %>% 
+  tally()
 
 
-# should be 2,289 plots 
-
-
-
-###############################################
-# kyle
-###############################################
 
 # now need to join supersection by tree species
 area <- read_csv("assessment_area_data.csv")
@@ -109,9 +85,11 @@ forest_type <- read_csv("plot_loc.csv") %>%
   left_join(plot_id_ss) %>% 
   select(ID, SS = Supersection, ftype) %>% 
   mutate(ftype = str_replace(ftype, "-", " "),
+         ftype = str_replace(ftype, "/", "|"),
          ftype = str_replace(ftype, "coast live oak", "live oak"),
          ftype = str_replace(ftype, "canyon live oak", "live oak"),
-         ftype = str_replace(ftype, "oregon live oak", "live oak"))
+         ftype = str_replace(ftype, "oregon live oak", "live oak"),
+         ftype = str_replace(ftype, "interior live oak", "live oak"))
 
 ftypes <- unique(forest_type$SS)
 
@@ -126,7 +104,7 @@ for (i in 1:length(ftypes)) {
   
   test <- vector()
   for (j in 1:nrow(sub_type)) {
-    test[j] <- sub_area %>% 
+    test <- sub_area %>% 
       filter(str_detect(species, paste(sub_type$ftype[j]))) %>% 
       select(cp_mt) %>% 
       as.numeric()
@@ -139,6 +117,13 @@ for (i in 1:length(ftypes)) {
   
 }
 
+
+NA_results <- results %>% 
+  filter(is.na(cp_mt))
+
+na_counts <- NA_results %>% 
+  group_by(ftype) %>% 
+  tally()
 
 
 
