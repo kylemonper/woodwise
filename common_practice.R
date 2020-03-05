@@ -57,7 +57,7 @@ area_forest <- forest_type %>%
 # now need to join supersection by tree species
 area <- read_csv("assessment_area_data.csv")
 Ca_areas <- area %>% 
-  filter(Supersection %in% plot_id_ss$SSection & Site.Class %in% c("High", "All")) %>% 
+  filter(Supersection %in% plot_id_ss$Supersection & Site.Class %in% c("High", "All")) %>% 
   select(ss = Supersection, aa = Assessment.Area, species = Associated.Species, class = Site.Class, cp = `Common.Practice.-.Above.Ground.Carbon.Mean.(Metric.Tonnes.CO2-equivalent)`) %>% 
   mutate(species = tolower(species),
          cp_mt = cp *(12/44))
@@ -65,7 +65,7 @@ Ca_areas <- area %>%
 forest_type <- read_csv("plot_loc.csv") %>% 
   mutate(ftype = tolower(MEANING)) %>% 
   left_join(plot_id_ss) %>% 
-  select(ID, SS = SSection, ftype) %>% 
+  select(ID, SS = Supersection, ftype) %>% 
   mutate(ftype = str_replace(ftype, "-", " "),
          ftype = str_replace(ftype, "coast live oak", "live oak"),
          ftype = str_replace(ftype, "canyon live oak", "live oak"),
