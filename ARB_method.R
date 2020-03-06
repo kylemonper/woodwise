@@ -13,7 +13,12 @@ non_merch <- read_delim("chip_pathways.txt", delim = ",")
 ### CP values for each plot (from common_practice.R)
 cp_plot <- read_csv("carb_base.csv") 
 
+thp <- read_csv("CALFIRE_THPS.csv")
+ntmp <- read_csv("CALFIRE_NTMPS.csv")
+
 all_data_cp <- left_join(all_data, cp_plot)
+
+
 
 # filter down to just one plot
 plot_all <- all_data_cp %>% 
@@ -418,6 +423,89 @@ write_csv(all_discounted_CARB_00, "all_discounted_CARB_dc_00.csv")
 
 
 
+###### add thp costs
+thp <- read_csv("CALFIRE_THPS.csv")
+ntmp <- read_csv("CALFIRE_NTMPS.csv")
+
+
+add_thp <- function(df) {
+  
+  ##THP
+  thp_grouped <- thp %>% 
+    mutate(size = if_else(ACRES < 500, "small",
+                          if_else(ACRES > 500 & ACRES < 2500, "medium", "large")))
+  
+  thp_total <- thp_grouped %>% 
+    group_by(size) %>% 
+    summarise(total = sum(ACRES),
+              avg_size = median(ACRES)) %>% 
+    ungroup() %>% 
+    mutate(cost = if_else(size == "small", 40000,
+                          if_else(size == "medium", 80000, 120000)),
+           avg_cpa = cost/avg_size)
+  
+  thp_avg_cpa <- weighted.mean(thp_total$avg_cpa, thp_total$total)
+  
+  ### NTMP
+  ntmp_grouped <- ntmp %>% 
+    mutate(size = if_else(ACRES < 500, "small", "large"))
+  
+  ntmp_total <- ntmp_grouped %>% 
+    group_by(size) %>% 
+    summarise(total = sum(ACRES),
+              avg_size = mean(ACRES)) %>% 
+    ungroup() %>% 
+    mutate(cost = if_else(size == "small", 48000, 124000),
+           avg_cpa = cost/avg_size)
+  
+  ntmp_avg_cpa <- weighted.mean(ntmp_total$avg_cpa, ntmp_total$total)
+  
+  
+  #####
+  ## try more simple average for both:
+  thp_simple_average <- (40000/250 + 80000/1250 + 120000/2000)/3
+  
+  ntmp_simple_average <- thp_simple_average*1.2 # 20% more than thp
+  
+  ##  agin for the simple
+  thp_simple_df <- data.frame(time = seq(1,31,6), thp_cpa = rep(thp_simple_average,6))
+  
+  thp_cost_simp <- thp_simple_df %>% 
+    mutate(disc_thp = thp_simple_average/((1+0.05)^time))
+  
+  total_thp_simp <- sum(thp_cost_simp$disc_thp)
+  
+  
+    
+    ### get group ownercode
+    tmp_join <- left_join(df, all_data[,c("owngrpcd", "ID")]) %>% 
+      distinct()
+    
+    ### if private and cc, add cost of thp, if private and thin, add ntmp
+    #~ then add this to the cum_discount_cost
+    df <- tmp_join %>% 
+      mutate(plan_cost = if_else(owngrpcd == 40 & rxpackage %in% c("032", "033"), total_thp_simp*acres, 
+                                 if_else(owngrpcd == 40 & !rxpackage %in% c("032", "033"), ntmp_simple_average*acres, 0)),
+             cum_discount_cost = cum_discount_cost + plan_cost)
+    
+    res <- df %>% 
+      mutate(total_carbon = total_relative_carb * acres,
+             total_cost = cum_discount_cost * acres,
+             cpu = total_cost/total_carbon,
+             total_rev = (cum_discount_cost-cum_discount_val) * acres,
+             cpu_rev = total_rev/total_carbon)
+    
+    
+    
+  }
+
+carb_thp_05 <- add_thp(all_discounted_CARB_05)
+carb_thp_00 <- add_thp(all_discounted_CARB_00)
+
+
+
+write_csv(carb_thp_05, "carb_cpu_05.csv")
+write_csv(carb_thp_00, "carb_cpu_00.csv")
 
 
 
