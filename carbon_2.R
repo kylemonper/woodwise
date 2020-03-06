@@ -849,13 +849,15 @@ thp_cost_simp <- thp_simple_df %>%
 total_thp_simp <- sum(thp_cost_simp$disc_thp)
 
 
+get_relative <- function(df) {
+
 ### get group ownercode
-tmp_join <- left_join(all_discounted_FullDecay, all_data[,c("owngrpcd", "ID")]) %>% 
+tmp_join <- left_join(df, all_data[,c("owngrpcd", "ID")]) %>% 
   distinct()
 
 ### if private and cc, add cost of thp, if private and thin, add ntmp
 #~ then add this to the cum_discount_cost
-all_discounted_FullDecay <- tmp_join %>% 
+df <- tmp_join %>% 
   mutate(plan_cost = if_else(owngrpcd == 40 & rxpackage %in% c("032", "033"), total_thp_simp*acres, 
                              if_else(owngrpcd == 40 & !rxpackage %in% c("032", "033"), ntmp_simple_average*acres, 0)),
          cum_discount_cost = cum_discount_cost + plan_cost)
@@ -874,7 +876,7 @@ selected_sites <- read_csv("baseline_sites.csv")
 ### first, wrangle data:
 ## get grow only for each plot
 
-get_relative <- function(df) {
+
   grow_only <- df %>% 
     filter(rxpackage == "031") %>% 
     select(biosum_cond_id, ID, acres, rxpackage, cum_discount_carb) %>% 
@@ -936,6 +938,7 @@ get_relative <- function(df) {
            cpu_rev = (total_cost-total_val)/total_carbon)
 }
 
+tmp <- get_relative(tmp_disc)
 
 #### get relative
 relative_carb_og_00 <- get_relative(all_discounted_og_00)
@@ -945,8 +948,10 @@ relative_carb_og_05 <- get_relative(all_discounted_og_05)
 
 
 ### last write: 2/25/2020
-write_csv(relative_carb, "relativ_carb_no_chip.csv")
-relative_carb <- read_csv("relativ_carb.csv")
+write_csv(relative_carb_og_00, "relative_carb_og_00.csv")
+write_csv(relative_carb_og_05, "relative_carb_og_05.csv")
+
+
 
 #####################
 ##### Optimize #####
