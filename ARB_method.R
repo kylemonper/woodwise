@@ -401,10 +401,7 @@ char_pct <- 0
 decay_pct <- 1
 dc_rate <- .05
 
-test_df <- plot_all %>% 
-  filter(ID == 2)
 
-test <- discount_all_CARB(test_df)
 
 Sys.time()
 all_discounted_CARB_05 <- discount_all_CARB(plot_all)
