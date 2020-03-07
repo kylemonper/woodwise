@@ -1,0 +1,252 @@
+---
+title: "Report Graphs"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include = FALSE}
+library(tidyverse)
+```
+
+```{r, include = FALSE}
+# counties of all plots
+  counties <- read_csv("plot_county.csv") %>% 
+    select(ID, NAME)
+#variant data and private or federal
+  all_data <- read_csv("all_data.csv")
+```
+
+```{r, include = FALSE}
+# read in CARB and OG dataframes with no discounting
+CARB_00 <- read_csv("carb_cpu_00.csv")
+OG_00 <- read_csv("relative_carb_og_00.csv")
+```
+
+```{r, include = FALSE}
+# read in CARB and OG dataframes with discount rate of 5%
+CARB_05 <- read_csv("carb_cpu_05.csv")
+OG_05 <- read_csv("relative_carb_og_05.csv")
+```
+
+```{r, echo = FALSE}
+#  function to get the optimal plots and break ties
+# all_plots is the raw data of all of the lots
+# price is the max we are willing to pay per ton
+
+optimal_generator = function(all_plots, price = 200){
+  optimal <- all_plots %>% 
+      filter(total_carbon > 0 ) %>%     
+      mutate(value = (price * total_carbon) - total_cost) %>% 
+      group_by(ID) %>% 
+      filter(value > 0 &
+               value == max(value))
+  
+  opt_tie_break <- optimal %>% 
+    group_by(ID) %>% 
+    sample_n(1) %>% 
+    ungroup()
+  
+  return(opt_tie_break)
+}
+```
+
+```{r, include = FALSE}
+# genrate optimal and tie break for 5% discount rates
+carb_05_opt <- optimal_generator(CARB_05) %>% 
+  left_join(counties, by = "ID")
+OG_05_opt <- optimal_generator(OG_05) %>% 
+  left_join(counties, by = "ID")
+```
+
+## Compare most frequently chosen prescriptions
+```{r, include = FALSE}
+
+# function to graph most frequently chosen prescriptions
+# optimal_df: the optimal dataframe from above
+# base_type: the title to the graph to differentiate between CARB and OG
+
+plot_common_rx = function(optimal_df, base_type = ""){
+  # group by package and count package occurance
+  package_count <- optimal_df %>% 
+    group_by(rxpackage) %>% 
+    tally()
+  
+  package_count$rxpackage <- factor(package_count$rxpackage, levels = package_count$rxpackage[order(-package_count$n)])
+   
+  # plot it
+ plot <- ggplot(package_count, aes(as.factor(rxpackage), n)) +
+    geom_col() +
+    labs(
+      x = "Treatment Package ID", 
+      y = "Count",
+      title = base_type
+    ) +
+    scale_y_continuous(expand = c(0,0)) +
+    theme_bw() +
+    theme(plot.title = element_text(hjust = 0.5))
+ 
+ return(plot)
+ 
+}
+```
+
+```{r, echo = FALSE}
+plot_common_rx(carb_05_opt, "CARB Baseline")
+plot_common_rx(OG_05_opt, "Original Baseline")
+```
+
+
+
+## Compare carbon consequences of grow only vs thinning vs clear cut
+
+```{r, include = FALSE}
+# get the dataframes ready and compine
+carb_cpu <- carb_05_opt %>% 
+  select(ID, acres, rxpackage, total_relative_carb, cum_discount_cost, cpu) %>% 
+  rename(relative_carb = total_relative_carb) %>% 
+  mutate(baseline_type = "CARB")
+
+og_cpu <- OG_05_opt %>% 
+  select(ID, acres, rxpackage, relative_carb, cum_discount_cost, cpu) %>% 
+  mutate(baseline_type = "Original")
+
+carb_og_cpu <- rbind(carb_cpu, og_cpu)
+
+```
+
+```{r, include = FALSE}
+# assign names for different types of treatments
+carb_og_cpu$treatment_type = 0
+   carb_og_cpu$treatment_type = 
+     ifelse(carb_og_cpu$rxpackage %in% c("033","032"), 
+                                     "clear cut", carb_og_cpu$treatment_type)
+   
+   carb_og_cpu$treatment_type = 
+     ifelse(carb_og_cpu$rxpackage == "031", 
+                                     "grow only", carb_og_cpu$treatment_type)
+   
+   carb_og_cpu$treatment_type = 
+     ifelse(!(carb_og_cpu$rxpackage %in% c("033","032", "031")), 
+                                       "thinning", carb_og_cpu$treatment_type)
+   
+ carb_og_cpu <- carb_og_cpu %>% 
+   filter(relative_carb <= 40)
+
+```
+
+```{r, echo = FALSE}
+# boxplot of carbon stored per acre
+carbon_plot <- carb_og_cpu %>% 
+  ggplot(aes(x = treatment_type, y = relative_carb)) +
+    geom_boxplot(aes(fill = baseline_type)) +
+    labs(x = "Treatment Type",
+         y = "Carbon Stored per Acre",
+         fill = "Baseline Type") +
+    theme_bw()
+carbon_plot
+```
+
+## CPU by baseline type
+### CPU has been filtered to be above - $1000/ton carbon 
+```{r, echo = FALSE}
+# boxplot of carbon stored per acre
+cpu_plot <- carb_og_cpu %>% 
+  filter(cpu >= -1000) %>% 
+  ggplot(aes(x = treatment_type, y = cpu)) +
+    geom_boxplot(aes(fill = baseline_type)) +
+    labs(x = "Treatment Type",
+         y = "Cost per Ton of Carbon",
+         fill = "Baseline Type") +
+    theme_bw()
+cpu_plot
+```
+
+
+## Allocation of costs per unit by counties
+
+### Original Baseline
+```{r, include = FALSE}
+# change the discounted costs to total discounted cost by multiplying by aces and then make cpu
+costs <- OG_05_opt %>% 
+  select(ID, NAME, acres, rxpackage, cum_disc_harvest, 
+         cum_disc_haul_chip, cum_disc_haul_merch, 
+         total_discount_carb, relative_carb) %>% 
+  mutate(cpu_harvest = cum_disc_harvest/relative_carb) %>% 
+  mutate(cpu_haul_chip = cum_disc_haul_chip/relative_carb) %>% 
+  mutate(cpu_haul_merch = cum_disc_haul_merch/relative_carb)
+
+```
+
+```{r, echo = FALSE}
+costs_mean <- costs %>% 
+  select(NAME, cpu_harvest, cpu_haul_chip, cpu_haul_merch) %>% 
+  gather(cost_type, cost, cpu_harvest:cpu_haul_merch) %>% 
+  group_by(NAME, cost_type) %>% 
+  summarize(mean_cost = mean(cost),
+            sd_cost = sd(cost)) %>% 
+  filter(NAME != "NA")
+
+```
+
+```{r, echo = FALSE}
+# plot bar chart with error bars
+ggplot(costs_mean, aes(x = reorder(NAME, mean_cost), y = mean_cost, fill = cost_type)) +
+  geom_bar(position = "stack", stat = "identity") +
+  scale_x_discrete(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  coord_flip() +
+  labs(
+    x = "County",
+    y = "Average Cost per Ton of Carbon",
+    fill = "Cost Type"
+  ) +
+  scale_fill_discrete(labels = c("Harvest", "Hauling chips", "Hauling merchantable")) +
+  theme_bw()
+
+```
+### CARB Baseline
+```{r, include = FALSE}
+# change the discounted costs to total discounted cost by multiplying by aces and then make cpu
+costs_carb <- carb_05_opt %>% 
+  select(ID, NAME, acres, rxpackage, cum_disc_harvest, 
+         cum_disc_haul_chip, cum_disc_haul_merch, 
+         total_discount_carb, total_relative_carb) %>% 
+  mutate(cpu_harvest = cum_disc_harvest/total_relative_carb) %>% 
+  mutate(cpu_haul_chip = cum_disc_haul_chip/total_relative_carb) %>% 
+  mutate(cpu_haul_merch = cum_disc_haul_merch/total_relative_carb)
+
+```
+
+```{r, include = FALSE}
+costs_mean_carb <- costs_carb %>% 
+  select(NAME, cpu_harvest, cpu_haul_chip, cpu_haul_merch) %>% 
+  gather(cost_type, cost, cpu_harvest:cpu_haul_merch) %>% 
+  group_by(NAME, cost_type) %>% 
+  summarize(mean_cost = mean(cost),
+            sd_cost = sd(cost)) %>% 
+  filter(NAME != "NA")
+
+```
+
+```{r, echo = FALSE}
+# plot bar chart with error bars
+ggplot(costs_mean_carb, aes(x = reorder(NAME, mean_cost), y = mean_cost, fill = cost_type)) +
+  geom_bar(position = "stack", stat = "identity") +
+  scale_x_discrete(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  coord_flip() +
+  labs(
+    x = "County",
+    y = "Average Cost per Ton of Carbon",
+    fill = "Cost Type"
+  ) +
+  scale_fill_discrete(labels = c("Harvest", "Hauling chips", "Hauling merchantable")) +
+  theme_bw()
+
+```
+
