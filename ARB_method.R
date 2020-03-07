@@ -507,7 +507,8 @@ carb_thp_00 <- add_thp(all_discounted_CARB_00)
 write_csv(carb_thp_05, "carb_cpu_05.csv")
 write_csv(carb_thp_00, "carb_cpu_00.csv")
 
-
+tmp <- carb_thp_00 %>% 
+  filter(ID == 1)
 
 
 
