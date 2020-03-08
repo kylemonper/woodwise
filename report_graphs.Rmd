@@ -11,6 +11,10 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r, include = FALSE}
 library(tidyverse)
+library(sf)
+library(ggspatial)
+library(RColorBrewer)
+options(scipen=999)
 ```
 
 ```{r, include = FALSE}
@@ -38,9 +42,18 @@ OG_05 <- read_csv("relative_carb_og_05.csv")
 # all_plots is the raw data of all of the lots
 # price is the max we are willing to pay per ton
 
-optimal_generator = function(all_plots, price = 200){
+optimal_generator = function(all_plots, price = 200, growonly = "yes"){
   optimal <- all_plots %>% 
-      filter(total_carbon > 0 ) %>%     
+      filter(total_carbon > 0) 
+    
+  if (growonly == "no"){
+    optimal <- optimal %>% 
+      filter(rxpackage != "031") 
+  } else{
+    NA
+  }
+  
+  optimal <- optimal %>% 
       mutate(value = (price * total_carbon) - total_cost) %>% 
       group_by(ID) %>% 
       filter(value > 0 &
@@ -62,6 +75,24 @@ carb_05_opt <- optimal_generator(CARB_05) %>%
 OG_05_opt <- optimal_generator(OG_05) %>% 
   left_join(counties, by = "ID")
 ```
+
+```{r, include = FALSE}
+# genrate optimal and tie break for 5% discount rates without grow only as an option
+carb_05_opt_ng <- optimal_generator(CARB_05, growonly = "no") %>% 
+  left_join(counties, by = "ID")
+OG_05_opt_ng <- optimal_generator(OG_05, growonly = "no") %>% 
+  left_join(counties, by = "ID")
+```
+
+
+```{r, include=FALSE}
+# with no discounting
+carb_00_opt <- optimal_generator(CARB_00) %>% 
+  left_join(counties, by = "ID")
+OG_00_opt <- optimal_generator(OG_00) %>% 
+  left_join(counties, by = "ID")
+```
+
 
 ## Compare most frequently chosen prescriptions
 ```{r, include = FALSE}
@@ -95,14 +126,32 @@ plot_common_rx = function(optimal_df, base_type = ""){
 }
 ```
 
+#### with discount rate of 5%
 ```{r, echo = FALSE}
+# with discounting
 plot_common_rx(carb_05_opt, "CARB Baseline")
 plot_common_rx(OG_05_opt, "Original Baseline")
 ```
 
+#### with discount rate of 5% but without allowing for grow only
+```{r, echo = FALSE}
+# with discounting
+plot_common_rx(carb_05_opt_ng, "CARB Baseline")
+plot_common_rx(OG_05_opt_ng, "Original Baseline")
+```
 
 
-## Compare carbon consequences of grow only vs thinning vs clear cut
+#### without discount rate 
+```{r, echo = FALSE}
+# with discounting
+plot_common_rx(carb_00_opt, "CARB Baseline")
+plot_common_rx(OG_00_opt, "Original Baseline")
+```
+
+
+
+## Compare carbon consequences of grow only vs thinning vs clear cut 
+### with optimal run 
 
 ```{r, include = FALSE}
 # get the dataframes ready and compine
@@ -151,11 +200,64 @@ carbon_plot <- carb_og_cpu %>%
 carbon_plot
 ```
 
+#### with all plots
+```{r, include = FALSE}
+# get the dataframes ready and compine
+carb_cpu_all <- CARB_05 %>% 
+  select(ID, acres, rxpackage, total_relative_carb, cum_discount_cost, cpu) %>% 
+  rename(relative_carb = total_relative_carb) %>% 
+  mutate(baseline_type = "CARB")
+
+og_cpu_all <- OG_05 %>% 
+  select(ID, acres, rxpackage, relative_carb, cum_discount_cost, cpu) %>% 
+  mutate(baseline_type = "Original")
+
+carb_og_cpu_all <- rbind(carb_cpu_all, og_cpu_all)
+
+```
+
+```{r, include = FALSE}
+# assign names for different types of treatments
+carb_og_cpu_all$treatment_type = 0
+   carb_og_cpu_all$treatment_type = 
+     ifelse(carb_og_cpu_all$rxpackage %in% c("033","032"), 
+                                     "clear cut", carb_og_cpu_all$treatment_type)
+   
+   carb_og_cpu_all$treatment_type = 
+     ifelse(carb_og_cpu_all$rxpackage == "031", 
+                                     "grow only", carb_og_cpu_all$treatment_type)
+   
+   carb_og_cpu_all$treatment_type = 
+     ifelse(!(carb_og_cpu_all$rxpackage %in% c("033","032", "031")), 
+                                       "thinning", carb_og_cpu_all$treatment_type)
+   
+ carb_og_cpu_all <- carb_og_cpu_all %>% 
+   filter(relative_carb <= 40)
+
+```
+
+```{r, echo = FALSE}
+# boxplot of carbon stored per acre
+carbon_plot_all <- carb_og_cpu_all %>% 
+  filter(relative_carb>0) %>%
+  ggplot(aes(x = treatment_type, y = relative_carb)) +
+    geom_boxplot(aes(fill = baseline_type)) +
+    labs(x = "Treatment Type",
+         y = "Carbon Stored per Acre",
+         fill = "Baseline Type") +
+    theme_bw()
+carbon_plot_all
+```
+
+
+
 ## CPU by baseline type
 ### CPU has been filtered to be above - $1000/ton carbon 
+#### With optimal plots
 ```{r, echo = FALSE}
 # boxplot of carbon stored per acre
 cpu_plot <- carb_og_cpu %>% 
+  filter(relative_carb >= 0) %>%
   filter(cpu >= -1000) %>% 
   ggplot(aes(x = treatment_type, y = cpu)) +
     geom_boxplot(aes(fill = baseline_type)) +
@@ -165,6 +267,61 @@ cpu_plot <- carb_og_cpu %>%
     theme_bw()
 cpu_plot
 ```
+
+#### With all plots
+```{r, echo = FALSE}
+# boxplot of carbon stored per acre
+cpu_plot_all <- carb_og_cpu_all %>% 
+  filter(cpu >= -1000) %>% 
+  filter(cpu < 1000) %>% 
+  ggplot(aes(x = treatment_type, y = cpu)) +
+    geom_boxplot(aes(fill = baseline_type)) +
+    labs(x = "Treatment Type",
+         y = "Cost per Ton of Carbon",
+         fill = "Baseline Type") +
+    theme_bw()
+cpu_plot_all
+```
+
+## alocation of plots in public or private with no grow only allowed
+```{r, echo = FALSE}
+
+fed_priv_carb_ng <- carb_05_opt_ng %>% 
+  select(ID, cpu, owngrpcd) %>% 
+  mutate(ownership = ifelse(owngrpcd == 40, "Private", "Federal")) %>% 
+  group_by(ownership) %>% 
+  tally() %>% 
+  mutate(type = "CARB")
+
+fed_priv_og_ng <- OG_05_opt_ng %>% 
+  select(ID, cpu, owngrpcd) %>% 
+  mutate(ownership = ifelse(owngrpcd == 40, "Private", "Federal")) %>% 
+  group_by(ownership) %>% 
+  tally() %>% 
+  mutate(type = "BAU")
+
+### combine 
+own_og_carb <- rbind(fed_priv_carb_ng, fed_priv_og_ng)
+
+```
+
+```{r, echo = FALSE}
+# graph it
+ggplot(own_og_carb, aes(x = ownership, y = n)) +
+  geom_col(aes(fill = type), position = "dodge") +
+  scale_y_continuous(expand = c(0,0)) +
+  labs(
+    x = "Ownership Type",
+    y = "Number of Plots Selected",
+    fill = "Baseline"
+  ) +
+  theme_bw()
+
+```
+
+
+
+
 
 
 ## Allocation of costs per unit by counties
@@ -246,6 +403,72 @@ ggplot(costs_mean_carb, aes(x = reorder(NAME, mean_cost), y = mean_cost, fill = 
     fill = "Cost Type"
   ) +
   scale_fill_discrete(labels = c("Harvest", "Hauling chips", "Hauling merchantable")) +
+  theme_bw()
+
+```
+
+# MAPS
+
+```{r, include = FALSE}
+plot_loc_geom <- read_sf("spatial_data", layer = "plot_loc")
+ca_counties <- read_sf("spatial_data/CA_Counties", layer = "CA_Counties_TIGER2016")
+```
+
+```{r, include = FALSE}
+ca_counties_clean <- ca_counties %>% 
+  select(NAME)
+
+carb_05_cpu_ng <- carb_05_opt_ng %>% 
+  select(ID, cpu)
+
+OG_05_cpu_ng <- OG_05_opt_ng %>% 
+  select(ID, cpu)
+
+
+plots_cpu_carb <- plot_loc_geom %>% 
+  select(ID) %>% 
+  left_join(carb_05_cpu_ng) %>% 
+  filter(cpu != "NA")
+
+plots_cpu_og <- plot_loc_geom %>% 
+  select(ID) %>% 
+  left_join(OG_05_cpu_ng) %>% 
+  filter(cpu != "NA")
+
+# range of pcu is 0 - 200
+# 0 - 66
+
+
+
+```
+
+```{r, echo=FALSE}
+pal <- brewer.pal(5, "OrRd") # we select 7 colors from the palette
+class(pal)
+
+# plot(ca_counties_clean)
+#plot(plots_cpu_carb["ID"])
+
+```
+## CARB baseline 
+```{r, echo = FALSE}
+
+ggplot(ca_counties_clean) +
+  geom_sf(fill = NA, color = "gray") +
+  geom_sf(data = plots_cpu_carb, aes(color = cpu), alpha = 0.5) +
+  scale_color_gradient(low = "#ffeda0", high = "#f03b20") +
+  theme_bw()
+
+```
+
+### BAU baselin
+```{r, echo = FALSE}
+
+
+ggplot(ca_counties_clean) +
+  geom_sf(fill = NA, color = "gray") +
+  geom_sf(data = plots_cpu_og, aes(color = cpu), alpha = 0.5) +
+  scale_color_gradient(low = "#ffeda0", high = "#f03b20") +
   theme_bw()
 
 ```
