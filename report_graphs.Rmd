@@ -48,7 +48,8 @@ optimal_generator = function(all_plots, price = 200, growonly = "yes"){
     
   if (growonly == "no"){
     optimal <- optimal %>% 
-      filter(rxpackage != "031") 
+      filter(rxpackage != "031") %>% 
+      filter(total_cost != 0)
   } else{
     NA
   }
@@ -239,7 +240,6 @@ carb_og_cpu_all$treatment_type = 0
 ```{r, echo = FALSE}
 # boxplot of carbon stored per acre
 carbon_plot_all <- carb_og_cpu_all %>% 
-  filter(relative_carb>0) %>%
   ggplot(aes(x = treatment_type, y = relative_carb)) +
     geom_boxplot(aes(fill = baseline_type)) +
     labs(x = "Treatment Type",
@@ -257,8 +257,8 @@ carbon_plot_all
 ```{r, echo = FALSE}
 # boxplot of carbon stored per acre
 cpu_plot <- carb_og_cpu %>% 
-  filter(relative_carb >= 0) %>%
   filter(cpu >= -1000) %>% 
+  filter(relative_carb > 0) %>% 
   ggplot(aes(x = treatment_type, y = cpu)) +
     geom_boxplot(aes(fill = baseline_type)) +
     labs(x = "Treatment Type",
@@ -272,6 +272,7 @@ cpu_plot
 ```{r, echo = FALSE}
 # boxplot of carbon stored per acre
 cpu_plot_all <- carb_og_cpu_all %>% 
+  filter(relative_carb >= 0) %>%
   filter(cpu >= -1000) %>% 
   filter(cpu < 1000) %>% 
   ggplot(aes(x = treatment_type, y = cpu)) +
@@ -324,12 +325,12 @@ ggplot(own_og_carb, aes(x = ownership, y = n)) +
 
 
 
-## Allocation of costs per unit by counties
+## Allocation of costs per unit by counties without grow only scenarios
 
 ### Original Baseline
 ```{r, include = FALSE}
 # change the discounted costs to total discounted cost by multiplying by aces and then make cpu
-costs <- OG_05_opt %>% 
+costs <- OG_05_opt_ng %>% 
   select(ID, NAME, acres, rxpackage, cum_disc_harvest, 
          cum_disc_haul_chip, cum_disc_haul_merch, 
          total_discount_carb, relative_carb) %>% 
@@ -369,7 +370,7 @@ ggplot(costs_mean, aes(x = reorder(NAME, mean_cost), y = mean_cost, fill = cost_
 ### CARB Baseline
 ```{r, include = FALSE}
 # change the discounted costs to total discounted cost by multiplying by aces and then make cpu
-costs_carb <- carb_05_opt %>% 
+costs_carb <- carb_05_opt_ng %>% 
   select(ID, NAME, acres, rxpackage, cum_disc_harvest, 
          cum_disc_haul_chip, cum_disc_haul_merch, 
          total_discount_carb, total_relative_carb) %>% 
@@ -395,7 +396,7 @@ costs_mean_carb <- costs_carb %>%
 ggplot(costs_mean_carb, aes(x = reorder(NAME, mean_cost), y = mean_cost, fill = cost_type)) +
   geom_bar(position = "stack", stat = "identity") +
   scale_x_discrete(expand = c(0,0)) +
-  scale_y_continuous(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0), limits = c(0, 600)) +
   coord_flip() +
   labs(
     x = "County",
@@ -463,12 +464,13 @@ ggplot(ca_counties_clean) +
 
 ### BAU baselin
 ```{r, echo = FALSE}
-
+plots_cpu_og_filt <- plots_cpu_og %>% 
+  filter(cpu >= -200)
 
 ggplot(ca_counties_clean) +
   geom_sf(fill = NA, color = "gray") +
-  geom_sf(data = plots_cpu_og, aes(color = cpu), alpha = 0.5) +
-  scale_color_gradient(low = "#ffeda0", high = "#f03b20") +
+  geom_sf(data = plots_cpu_og_filt, aes(color = cpu), alpha = 0.5) +
+  scale_color_gradient(low = "#e5f5f9", high = "#0d3804") +
   theme_bw()
 
 ```
