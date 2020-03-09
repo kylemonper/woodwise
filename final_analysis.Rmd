@@ -18,66 +18,37 @@ library(tidyverse)
 # total_carbon: total discounted carbon (not per acre)
 # discount_haul_chip: the discounted cost *per acre* of hauling chips
 # relative_carb: discounted carbon per acre
+
 # analysis on opt tie break and opt tie break nocc
 
 ```
 
-```{r}
-# CARB data
-
-  # cum_disc_harvest -- cost per acre
-  # cum_merch_merch == carbon per acre
-  # cum_discount_carb = carbon per acre above ground living biomass
-  # total_discount_carb = sum of the carb
-  # total relative carb  = total_discount_carb - baseline 
-  # total_relative_carb*acres
-  # cum_disc_harvest = cost per acre 
-
-```
-
-
 ```{r, include = FALSE}
+# for analyses on all plots
+  relative_carb <- read_csv("relativ_carb.csv") 
 # counties of all plots
   counties <- read_csv("plot_county.csv") %>% 
     select(ID, lat, lon, NAME)
+# for analyses on MCC plots  
+  opt_tie_break <- read_csv("opt_tie_break.csv") 
 #variant data and private or federal
   all_data <- read_csv("all_data.csv")
 ```
 
 ```{r, echo = FALSE}
-# read in CARB and OG dataframes with no discounting
-CARB_00 <- read_csv("carb_cpu_00.csv")
-OG_00 <- read_csv("relative_carb_og_00.csv")
+# combine counties with opti_tie_Break
+
+opt_tie_break_counties <- left_join(counties, opt_tie_break, by = "ID") %>% 
+  filter(biosum_cond_id != "NA")
+
 ```
+
 
 ```{r, echo = FALSE}
-# read in CARB and OG dataframes with discount rate of 5%
-CARB_05 <- read_csv("carb_cpu_05.csv")
-OG_05 <- read_csv("relative_carb_og_05.csv")
-```
-
-```{r, echo = FALSE}
-#  to get the optimal 
-price <- 200 ### this is the max we are willing to pay  per ton
-
-optimal <- CARB_05 %>% 
-    filter(total_carbon > 0 ) %>%     
-    mutate(value = (price * total_carbon) - total_cost) %>% 
-    group_by(ID) %>% 
-    filter(value > 0 &
-             value == max(value))
-
-opt_tie_break <- optimal %>% 
-  group_by(ID) %>% 
-  sample_n(1) %>% 
-  ungroup()
-```
-
-```{r, echo = FALSE, include=FALSE, error=TRUE}
 #  to get the optimal without clear cutting
 price <- 200 ### this is the max we are willing to pay  per ton
 
-optimal_noCC <- CARB_05 %>% 
+optimal_noCC <- relative_carb %>% 
     filter(total_carbon > 0 ) %>%     
     filter(!rxpackage %in% c("032", "033")) %>% 
     mutate(value = (price * total_carbon) - total_cost) %>% 
@@ -89,13 +60,6 @@ opt_tie_break_nocc <- optimal_noCC %>%
   group_by(ID) %>% 
   sample_n(1) %>% 
   ungroup()
-```
-
-```{r, echo = FALSE}
-# combine counties with opti_tie_Break
-opt_tie_break_counties <- left_join(counties, opt_tie_break, by = "ID") %>% 
-  filter(biosum_cond_id != "NA")
-
 ```
 
 
@@ -122,11 +86,8 @@ ggplot(package_count, aes(as.factor(rxpackage), n)) +
 
 ```
 
-
-```{r, echo = FALSE, include = FALSE}
-
 ## Without clear cutting as an option 
-
+```{r, echo = FALSE}
 # group by package and count package occurance
 package_count_nocc <- opt_tie_break_nocc %>% 
   group_by(rxpackage) %>% 
@@ -185,6 +146,8 @@ cost_plot <- opt_tie_break_counties %>%
     labs(x = "Treatment Type",
          y = "Cost per Acre") +
     theme_bw()
+
+cost_plot
 
 # boxplot of carbon stored per acre
 carbon_plot <- opt_tie_break_counties %>% 
@@ -274,12 +237,12 @@ ratio_boxplot
 
 # change the discounted costs to total discounted cost by multiplying by aces and then make cpu
 costs <- opt_tie_break_counties %>% 
-  select(ID, NAME, acres, rxpackage, cum_disc_harvest, 
-         cum_disc_haul_chip, cum_disc_haul_merch, 
-         total_discount_carb, total_carbon) %>% 
-  mutate(harvest_cost = cum_disc_harvest*acres) %>% 
-  mutate(haul_chip_cost = cum_disc_haul_chip*acres) %>% 
-  mutate(haul_merch_cost = cum_disc_haul_merch*acres) %>% 
+  select(ID, NAME, acres, rxpackage, discount_harvest, 
+         discount_haul_chip, discount_haul_merch, 
+         total_discount_carb, relative_carb, total_carbon) %>% 
+  mutate(harvest_cost = discount_harvest*acres) %>% 
+  mutate(haul_chip_cost = discount_haul_chip*acres) %>% 
+  mutate(haul_merch_cost = discount_haul_merch*acres) %>% 
   mutate(cpu_harvest = harvest_cost/total_carbon) %>% 
   mutate(cpu_haul_chip = haul_chip_cost/total_carbon) %>% 
   mutate(cpu_haul_merch = haul_merch_cost/total_carbon)
@@ -329,8 +292,8 @@ ggplot(costs_mean, aes(x = reorder(NAME, mean_cost), y = mean_cost, fill = cost_
 ```{r, echo = FALSE}
 
 variants <- all_data %>% 
-  select(ID, fvs_variant) %>% 
-  group_by(ID, fvs_variant) %>% 
+  select(ID, fvs_variant, owngrpcd) %>% 
+  group_by(ID, fvs_variant, owngrpcd) %>% 
   summarize()
 
 simple_plus <- opt_tie_break_counties %>% 
@@ -343,7 +306,7 @@ simple_plus <- opt_tie_break_counties %>%
 ```{r, echo = FALSE}
 
 variant_carbon <- simple_plus %>% 
-  select(biosum_cond_id, ID, rxpackage, fvs_variant, owngrpcd, cpu,
+  select(biosum_cond_id, ID, rxpackage, fvs_variant, owngrpcd, cpu, relative_carb,
          total_discount_carb, acres, total_cost) 
 
 variant_boxplot <- variant_carbon %>% 
@@ -398,7 +361,7 @@ ggplot(fed_priv, aes(x = ownership, y = cpu)) +
 
 
 ## visualization of differences in methods
-```{r, include = FALSE}
+```{r}
 all_data <- read_csv("all_data.csv")
 source("discount_all_new.R")
 source("old_discount_method.R") 

@@ -1,8 +1,6 @@
 ---
 title: "Report Graphs"
-output:
-  html_document:
-    df_print: paged
+output: html_document
 ---
 
 ```{r setup, include=FALSE}
