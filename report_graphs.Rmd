@@ -12,6 +12,7 @@ library(tidyverse)
 library(sf)
 library(ggspatial)
 library(RColorBrewer)
+library(car)
 options(scipen=999)
 ```
 
@@ -209,7 +210,7 @@ carb_cpu_all <- CARB_05 %>%
 
 og_cpu_all <- OG_05 %>% 
   select(ID, acres, rxpackage, relative_carb, cum_discount_cost, cpu) %>% 
-  mutate(baseline_type = "Original")
+  mutate(baseline_type = "BAU")
 
 carb_og_cpu_all <- rbind(carb_cpu_all, og_cpu_all)
 
@@ -247,6 +248,113 @@ carbon_plot_all <- carb_og_cpu_all %>%
 carbon_plot_all
 ```
 
+### carbon stored per acre stats
+```{r, echo = FALSE}
+
+CARB_carb <- carb_og_cpu_all %>% 
+  select(baseline_type, treatment_type, relative_carb) %>% 
+  filter(baseline_type == "CARB")
+
+# what percent of relative carbon is above 0?
+# 2,286 grow only scenarios and 1542 were above 0 
+# 54872 thinning scenarios and 26247 were above 0
+  # 28625 we below zero
+# 4574 clear cut scenarios and 2961 were below zero
+carb_go <- CARB_carb %>% 
+  filter(treatment_type == "clear cut") %>% 
+  filter(relative_carb < 0)
+
+# test if normally distributed
+ggplot(CARB_carb, aes(x = relative_carb)) +
+  geom_histogram(aes(fill = treatment_type), bins = 100) + 
+  facet_wrap(~treatment_type) + #if want to make mismatching scale write scale = "free"
+  theme_classic()
+
+ ggplot(CARB_carb, aes(sample = relative_carb)) +
+  geom_qq(aes(color = treatment_type)) +
+  facet_wrap(~treatment_type) +
+  scale_y_continuous(limits = c(-500,500))
+
+```
+
+```{r, echo = FALSE}
+# test of variances
+levene_test_CARB <- leveneTest(relative_carb ~ treatment_type, data= CARB_carb)
+# there is a significant difference in variances between the data
+
+
+anova_CARB <- aov(relative_carb ~ treatment_type, data= CARB_carb)
+summary(anova_CARB)
+# there is asignificant difference in carbon per acre between thinning treatments for the CARB data
+
+```
+
+```{r, include = FALSE}
+
+BAU_carb <- carb_og_cpu_all %>% 
+  select(baseline_type, treatment_type, relative_carb) %>% 
+  filter(baseline_type == "BAU") 
+
+
+
+# test if normally distributed
+ggplot(BAU_carb, aes(x = relative_carb)) +
+  geom_histogram(aes(fill = treatment_type), bins = 100) + 
+  facet_wrap(~treatment_type) + #if want to make mismatching scale write scale = "free"
+  theme_classic()
+
+ ggplot(BAU_carb, aes(sample = relative_carb)) +
+  geom_qq(aes(color = treatment_type)) +
+  facet_wrap(~treatment_type) +
+  scale_y_continuous(limits = c(-500,500))
+
+```
+
+```{r, echo = FALSE}
+# test of variances
+levene_test_BAU <- leveneTest(relative_carb ~ treatment_type, data = BAU_carb)
+# there is asignificant difference in variances between the data
+
+anova_BAU <- aov(relative_carb ~ treatment_type, data= BAU_carb)
+summary(anova_BAU)
+# there is a significant difference in carbon per acre between thinning treatments for the BAU data
+
+TukeyHSD(anova_BAU)
+
+```
+
+```{r, echo = FALSE}
+
+var.test(relative_carb ~ baseline_type, data = carb_og_cpu_all)
+# variances are different 
+
+t.test(relative_carb ~ baseline_type, data = carb_og_cpu_all, alternative = "less")
+
+
+
+
+qqplot(carb_og_cpu_all$relative_carb)
+```
+
+```{r, echo = FALSE}
+# what percent of relative carbon is below 0?
+# 4,578 clear cut scenarios and 2921 were below 0 
+# 54936 thinning scenarios and 44987 were below 0
+# 2288 grow only scenarios and 792 were above 0
+bau_go <- BAU_carb %>% 
+  filter(treatment_type == "grow only") 
+
+bau_thin <- BAU_carb %>% 
+  filter(treatment_type == "thinning") 
+
+# ## within baseline t tests #####
+# check equal variances
+var.test(bau_go$relative_carb, bau_thin$relative_carb)
+# they do not have equal variances 
+
+# so need to do a wa
+
+```
 
 
 ## CPU by baseline type
@@ -301,6 +409,10 @@ fed_priv_og_ng <- OG_05_opt_ng %>%
 
 ### combine 
 own_og_carb <- rbind(fed_priv_carb_ng, fed_priv_og_ng)
+
+add_carb_0 <- data.frame(ownership = c("Private"), n = c(0), type = c("CARB"))
+
+own_og_carb <- rbind(own_og_carb, add_carb_0)
 
 ```
 
@@ -361,7 +473,8 @@ ggplot(costs_mean, aes(x = reorder(NAME, mean_cost), y = mean_cost, fill = cost_
     y = "Average Cost per Ton of Carbon",
     fill = "Cost Type"
   ) +
-  scale_fill_discrete(labels = c("Harvest", "Hauling chips", "Hauling merchantable")) +
+  scale_fill_manual(values = c("#138f23", "#ffa600", "#695746"), 
+                    labels = c("Harvest", "Hauling chips", "Hauling merchantable")) +
   theme_bw()
 
 ```
@@ -401,7 +514,90 @@ ggplot(costs_mean_carb, aes(x = reorder(NAME, mean_cost), y = mean_cost, fill = 
     y = "Average Cost per Ton of Carbon",
     fill = "Cost Type"
   ) +
-  scale_fill_discrete(labels = c("Harvest", "Hauling chips", "Hauling merchantable")) +
+  scale_fill_manual(values = c("#138f23", "#ffa600", "#695746"), 
+                    labels = c("Harvest", "Hauling chips", "Hauling merchantable")) +
+  theme_bw()
+
+```
+
+### carbon distribution
+
+#### CARB Baseline
+```{r, include = FALSE}
+# make ratios of each type of carbon to total carbon 
+CARB_spread_carb <- carb_05_opt_ng %>% 
+  select(ID, NAME, acres, rxpackage, total_discount_carb,
+         cum_discount_carb, cum_discount_merch, cum_discount_decay) %>% 
+  mutate(cr_harvest = cum_discount_carb/total_discount_carb) %>% 
+  mutate(cr_chip = cum_discount_decay/total_discount_carb) %>% 
+  mutate(cr_merch = cum_discount_merch/total_discount_carb)
+
+# create a new dataframe for graphing
+
+carb_spread_clean <- CARB_spread_carb %>% 
+  select(NAME, cr_harvest, cr_chip, cr_merch) %>% 
+  gather(type, carbon, cr_harvest:cr_merch) %>% 
+  group_by(NAME, type) %>% 
+  summarize(mean_carbon = mean(carbon),
+            sd_carbon = sd(carbon)) %>% 
+  filter(NAME != "NA")
+
+```
+
+```{r, echo = FALSE}
+
+ggplot(carb_spread_clean, aes(x = reorder(NAME, mean_carbon), y = mean_carbon, fill = type)) +
+  geom_bar(position = "stack", stat = "identity") +
+  scale_x_discrete(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  coord_flip() +
+  labs(
+    x = "County",
+    y = "Average Carbon to Total Ratio",
+    fill = "Type"
+  ) +
+  scale_fill_manual(values = c("#138f23", "#ffa600", "#695746"), 
+                    labels = c("Chips", "Forest", "Merchantable")) +
+  theme_bw()
+
+```
+
+#### BAU baselin
+```{r, include = FALSE}
+# make ratios of each type of carbon to total carbon 
+BAU_spread_carb <- OG_05_opt_ng %>% 
+  select(ID, NAME, acres, rxpackage, total_discount_carb,
+         cum_discount_carb, cum_discount_merch, cum_discount_decay) %>% 
+  mutate(cr_harvest = cum_discount_carb/total_discount_carb) %>% 
+  mutate(cr_chip = cum_discount_decay/total_discount_carb) %>% 
+  mutate(cr_merch = cum_discount_merch/total_discount_carb)
+
+# create a new dataframe for graphing
+
+bau_spread_clean <- BAU_spread_carb %>% 
+  select(NAME, cr_harvest, cr_chip, cr_merch) %>% 
+  gather(type, carbon, cr_harvest:cr_merch) %>% 
+  group_by(NAME, type) %>% 
+  summarize(mean_carbon = mean(carbon),
+            sd_carbon = sd(carbon)) %>% 
+  filter(NAME != "NA")
+
+```
+
+```{r, echo = FALSE}
+
+ggplot(bau_spread_clean, aes(x = reorder(NAME, mean_carbon), y = mean_carbon, fill = type)) +
+  geom_bar(position = "stack", stat = "identity") +
+  scale_x_discrete(expand = c(0,0)) +
+  scale_y_continuous(expand = c(0,0)) +
+  coord_flip() +
+  labs(
+    x = "County",
+    y = "Average Carbon to Total Ratio",
+    fill = "Type"
+  ) +
+  scale_fill_manual(values = c("#138f23", "#ffa600", "#695746"), 
+                    labels = c("Chips", "Harvest", "Merchantable")) +
   theme_bw()
 
 ```
