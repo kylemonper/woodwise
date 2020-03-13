@@ -510,5 +510,15 @@ write_csv(carb_thp_00, "carb_cpu_00.csv")
 tmp <- carb_thp_00 %>% 
   filter(ID == 1)
 
+##### how much would be abated at the given price of 15
 
+
+carb_15 <- cumsum %>% 
+  filter(cpu <= 15)
+
+abate_25 <- cumsum %>% 
+  filter(cumsum_carb <= 25000000) 
+
+### this function approximates taking the integral of points w/in an x-y coordinate system
+total_cost_25mt <- pracma::trapz(abate_25$cumsum_carb, abate_25$cpu)
 
