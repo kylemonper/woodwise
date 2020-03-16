@@ -48,7 +48,7 @@ optimal_generator = function(all_plots, price = 200, growonly = "yes"){
   if (growonly == "no"){
     optimal <- optimal %>% 
       filter(rxpackage != "031") %>% 
-      filter(total_cost != 0)
+      filter(cum_discount_cost != 0)
   } else{
     NA
   }
@@ -332,8 +332,6 @@ t.test(relative_carb ~ baseline_type, data = carb_og_cpu_all, alternative = "les
 
 
 
-
-qqplot(carb_og_cpu_all$relative_carb)
 ```
 
 ```{r, echo = FALSE}
