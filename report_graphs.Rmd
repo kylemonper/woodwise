@@ -299,6 +299,7 @@ TukeyHSD(anova_BAU)
 var.test(relative_carb ~ baseline_type, data = carb_og_cpu_all)
 # variances are different 
 t.test(relative_carb ~ baseline_type, data = carb_og_cpu_all, alternative = "less")
+
 ```
 
 ```{r, echo = FALSE}
