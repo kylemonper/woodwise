@@ -43,7 +43,7 @@ carb_opt_05 <- select_opt(carb_cpu_05, grow_only = F)
 og_opt_05 <- select_opt(relative_og_05, grow_only = F)
 
 
-carb_opt_05$baseline_method <- "CARB"
+carb_opt_05$baseline_method <- "Assumed Management"
 og_opt_05$baseline_method <- "Business as Usual (BAU)"
 
 both <- bind_rows(carb_opt_05, og_opt_05)
@@ -54,7 +54,7 @@ carb_opt_05_wo <- select_opt(carb_cpu_05, grow_only = T)
 og_opt_05_wo <- select_opt(relative_og_05, grow_only = T)
 
 
-carb_opt_05_wo$baseline_method <- "CARB"
+carb_opt_05_wo$baseline_method <- "Assumed Management"
 og_opt_05_wo$baseline_method <- "Business as Usual (BAU)"
 
 both_wo <- bind_rows(carb_opt_05_wo, og_opt_05_wo)
@@ -85,9 +85,10 @@ ggplot(og_opt_05_wo, aes(cumsum_carb, cpu, color = baseline_method)) +
 ggplot(both_wo, aes(cumsum_carb, cpu, color = baseline_method)) +
   geom_hline(yintercept = 0, alpha = .5) +
   geom_line(size = 2) +
+  geom_hline(yintercept = 15, linetype = "dashed", size = 1) +
   scale_x_continuous(limits = c(0, 25000000),label=comma) +
   scale_y_continuous(limits = c(-120,220), expand = c(0,0)) +
-  scale_colour_manual(name = "Baseline Method", values=c(CARB = "lightsalmon", `Business as Usual (BAU)` = "skyblue1")) +
+  scale_colour_manual(name = "Baseline Method", values=c(`Assumed Management` = "lightsalmon", `Business as Usual (BAU)` = "skyblue1")) +
   theme_solarized(base_size = 24) +
   #theme(legend.position = "none") +
   labs(
@@ -119,14 +120,12 @@ ggplot(data = all, aes(cumsum_carb, cpu, color = baseline_method, linetype = gro
 
 ##### how much would be abated at the given price of 15
 
-carb_15 <- carb_opt_05 %>% 
+carb_15 <- carb_opt_05_wo %>% 
   filter(cpu <= 15)
 
-abate_25 <- carb_opt_05 %>% 
-  filter(cumsum_carb <= 430000) 
 
 ### this function approximates taking the integral of points w/in an x-y coordinate system
-total_cost_25mt <- pracma::trapz(abate_25$cumsum_carb, abate_25$cpu)
+total_cost_25mt <- pracma::trapz(carb_15$cumsum_carb, carb_15$cpu)
 
 
 
