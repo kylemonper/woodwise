@@ -64,7 +64,7 @@ both_wo$grow_type <- "no grow only"
 all <- bind_rows(both, both_wo)
 
 #####################
-######  GRAPH   #####
+######  GRAPH Kyle#####
 #####################
 
 ### Just BAU (no grow only)
@@ -113,7 +113,9 @@ ggplot(data = all, aes(cumsum_carb, cpu, color = baseline_method, linetype = gro
     y = "$/Ton of Carbon"
   )
 
-
+#########################
+###### w/ grow only #####
+#########################
 
 ##### how much would be abated at the given price of 15
 
@@ -125,5 +127,42 @@ abate_25 <- carb_opt_05 %>%
 
 ### this function approximates taking the integral of points w/in an x-y coordinate system
 total_cost_25mt <- pracma::trapz(abate_25$cumsum_carb, abate_25$cpu)
+
+
+
+#####################
+###### GRAPH AC #####
+#####################
+
+## both baselines w/o grow only
+ggplot(both_wo, aes(cumsum_carb, cpu, color = baseline_method)) +
+  geom_hline(yintercept = 0, alpha = .5) +
+  geom_line(size = 2) +
+  scale_x_continuous(limits = c(0, 25000000),label=comma) +
+  scale_y_continuous(limits = c(-120,220), expand = c(0,0)) +
+  scale_colour_manual(name = "Baseline Method", values=c(CARB = "#7F6000", `Business as Usual (BAU)` = "#6AA84F")) +
+  theme_classic(base_size = 15) +
+  labs(
+    x = "Tons of Carbon",
+    y = "$/Ton of Carbon"
+  ) 
+
+#### all MCCs
+ggplot(data = all, aes(cumsum_carb, cpu, color = baseline_method, linetype = grow_type)) +
+  geom_hline(yintercept = 0, alpha = .5) +
+  geom_line(size = 2) +
+  scale_x_continuous(limits = c(0, 25000000),label=comma) +
+  scale_y_continuous(limits = c(-120,220), expand = c(0,0)) +
+  scale_color_manual(name = "Baseline Method",
+                     values = c(CARB = "#7F6000", 
+                                `Business as Usual (BAU)` = "#6AA84F")) +
+  scale_linetype_manual(name = "Management",
+                        values = c("no grow only" = 1, "Include grow only" = 3)) +
+  theme_classic(base_size = 15) +
+  labs(
+    x = "Tons of Carbon",
+    y = "$/Ton of Carbon"
+  )
+
 
 
