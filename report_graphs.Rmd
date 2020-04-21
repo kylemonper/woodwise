@@ -145,6 +145,154 @@ plot_common_rx(carb_00_opt, "CARB Baseline")
 plot_common_rx(OG_00_opt, "Original Baseline")
 ```
 
+## Compare most frequently chosen prescriptions in a nice way
+
+```{r, echo = FALSE}
+# CARB 5% discount rate
+carb_05_opt_test <- carb_05_opt %>% 
+  select(ID, rxpackage) %>% 
+  mutate(rxpackage_num = as.numeric(rxpackage))
+
+#make new column saying what type of management practice each treatment is
+carb_05_opt_test$rx_type = NA
+carb_05_opt_test$rx_type = ifelse(carb_05_opt_test$rxpackage_num == 31, "Grow Only", carb_05_opt_test$rx_type)
+carb_05_opt_test$rx_type = ifelse(carb_05_opt_test$rxpackage_num %in% (1:30), "Thinning", carb_05_opt_test$rx_type)
+carb_05_opt_test$rx_type = ifelse(carb_05_opt_test$rxpackage_num %in% (32:33), "Clear Cut", carb_05_opt_test$rx_type)
+
+
+plot_diff <- carb_05_opt_test %>% 
+  group_by(rx_type) %>% 
+  tally() %>% 
+  arrange(-n) %>% 
+  ggplot(aes(x = reorder(rx_type, -n), y = n)) +
+  geom_col(aes(fill = rx_type), show.legend = FALSE) +
+  labs(
+    x = "Treatment Type",
+    y = "Frequency Chosen"
+  ) +
+  scale_y_continuous(expand = c(0,0)) +
+  theme_classic()
+
+plot_diff
+
+```
+
+```{r}
+
+# CARB 5% discount rate
+carb_05_opt_test <- OG_05_opt_ng %>% 
+  select(ID, rxpackage) %>% 
+  mutate(rxpackage_num = as.numeric(rxpackage))
+
+#make new column saying what type of management practice each treatment is
+carb_05_opt_test$rx_type = NA
+carb_05_opt_test$rx_type = ifelse(carb_05_opt_test$rxpackage_num == 31, "Grow Only", carb_05_opt_test$rx_type)
+carb_05_opt_test$rx_type = ifelse(carb_05_opt_test$rxpackage_num %in% (1:30), "Thinning", carb_05_opt_test$rx_type)
+carb_05_opt_test$rx_type = ifelse(carb_05_opt_test$rxpackage_num %in% (32:33), "Clear Cut", carb_05_opt_test$rx_type)
+
+
+plot_diff <- carb_05_opt_test %>% 
+  group_by(rx_type) %>% 
+  tally() %>% 
+  arrange(-n) %>% 
+  ggplot(aes(x = reorder(rx_type, -n), y = n)) +
+  geom_col(aes(fill = rx_type), show.legend = FALSE) +
+  labs(
+    x = "Treatment Type",
+    y = "Frequency Chosen"
+  ) +
+  scale_y_continuous(expand = c(0,0)) +
+  theme_classic()
+
+plot_diff
+
+
+```
+
+
+```{r}
+# make another column for entry density 
+carb_05_opt_test$entry_dens = NA
+carb_05_opt_test$entry_dens = ifelse(carb_05_opt_test$rxpackage_num %in% (1:7),
+                                     "BA>=115", carb_05_opt_test$entry_dens)
+carb_05_opt_test$entry_dens = ifelse(carb_05_opt_test$rxpackage_num %in% (12:17),
+                                     "BA>=115", carb_05_opt_test$entry_dens)
+carb_05_opt_test$entry_dens = ifelse(carb_05_opt_test$rxpackage_num %in% (19:20),
+                                     "BA>=115", carb_05_opt_test$entry_dens)
+carb_05_opt_test$entry_dens = ifelse(carb_05_opt_test$rxpackage_num %in% c(8,23),
+                                     "BA>=135", carb_05_opt_test$entry_dens)
+carb_05_opt_test$entry_dens = ifelse(carb_05_opt_test$rxpackage_num %in% (32:33), 
+                                     "BA>=150", carb_05_opt_test$entry_dens)
+carb_05_opt_test$entry_dens = ifelse(carb_05_opt_test$rxpackage_num %in% c(9,10,24,25,27), 
+                                     "BA>=150", carb_05_opt_test$entry_dens)
+carb_05_opt_test$entry_dens = ifelse(carb_05_opt_test$rxpackage_num %in% c(11,26,18),
+                                     "BA>=180", carb_05_opt_test$entry_dens)
+carb_05_opt_test$entry_dens = ifelse(carb_05_opt_test$rxpackage_num == 31,
+                                     "grow-only", carb_05_opt_test$entry_dens)
+
+
+
+
+plot_diff <- carb_05_opt_test %>% 
+  group_by(entry_dens) %>% 
+  tally() %>% 
+  arrange(-n) %>% 
+  ggplot(aes(x = reorder(entry_dens, -n), y = n)) +
+  geom_col(aes(fill = entry_dens), show.legend = FALSE) +
+  labs(
+    x = "Entry Density",
+    y = "Frequency Chosen"
+  ) +
+  scale_y_continuous(expand = c(0,0)) +
+  scale_fill_manual(values = c("red", "orange", "yellow", "dark green")) +
+  theme_classic()
+
+plot_diff
+
+
+# 180: low
+# 150: low medium
+# 135: high medium
+# 115: high
+
+```
+
+
+```{r, include = FALSE}
+# function to graph most frequently chosen prescriptions
+# optimal_df: the optimal dataframe from above
+# base_type: the title to the graph to differentiate between CARB and OG
+plot_common_rx_nice = function(optimal_df, base_type = ""){
+  # group by package and count package occurance
+  package_count <- optimal_df %>% 
+    group_by(entry_dens, rxpackage) %>% 
+    tally()
+  
+  package_count$rxpackage <- factor(package_count$rxpackage, 
+                                    levels = package_count$rxpackage[order(-package_count$n)])
+   
+  # plot it
+ plot <- ggplot(package_count, aes(as.factor(rxpackage), n)) +
+    geom_col(aes(fill = entry_dens)) +
+    labs(
+      x = "Treatment Package ID", 
+      y = "Count",
+      title = base_type
+    ) +
+   scale_fill_manual(values = c("red", "orange", "yellow", "dark green")) +
+    scale_y_continuous(expand = c(0,0)) +
+    theme_bw() +
+    theme(plot.title = element_text(hjust = 0.5))
+ 
+ return(plot)
+ 
+}
+```
+
+```{r, echo = FALSE}
+plot_common_rx_nice(carb_05_opt_test, "BAU Baseline")
+```
+
 
 
 ## Compare carbon consequences of grow only vs thinning vs clear cut 
